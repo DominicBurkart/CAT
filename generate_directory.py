@@ -115,34 +115,36 @@ def shape(path):
     return df(path).shape
 
 
-def df(path, names=None, infer_header=False, use_hyperstream_repair=True):
+@lru_cache(maxsize=1)
+def df(path, use_hyp_names=False, infer_header=False, use_hyperstream_repair=True):
     import pandas as pd
+    global stream_headers
 
-    if names is not None and infer_header:
-        raise TypeError("Column names were passed, but infer_header was set to true. Both cannot be done.")
+    if use_hyp_names and infer_header:
+        raise TypeError("Use of hyperstream column names AND header inference cannot both be set to true.")
 
     try:
         if path.endswith(".csv"):
             if not infer_header:
-                if names is None:
+                if use_hyp_names is False:
                     return pd.read_csv(path, header=None)
                 else:
-                    return pd.read_csv(path, header=None, names=names)
+                    return pd.read_csv(path, header=None, names=stream_headers)
             else:
                 return pd.read_csv(path)
         elif path.endswith(".tsv"):
             if not infer_header:
-                if names is None:
+                if use_hyp_names is False:
                     return pd.read_csv(path, delimiter="\t", header=None)
                 else:
-                    return pd.read_csv(path, delimiter="\t", header=None, names=names)
+                    return pd.read_csv(path, delimiter="\t", header=None, names=stream_headers)
             else:
                 return pd.read_csv(path, delimiter="\t")
         else:
             raise ValueError("function df passed a file of unknown type. Files must terminate in .csv or .tsv.")
     except pd.errors.ParserError as e:
         if use_hyperstream_repair:
-            return repair_hyperstream_tsv(path, names=names)
+            return repair_hyperstream_tsv(path, names=stream_headers)
         else:
             raise e
 
@@ -177,8 +179,7 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None):
 
 
 @lru_cache(maxsize=1)
-def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"),
-                  local_shapefile="tl_2017_us_state"):
+def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state"):
     '''
     Gives the US state (or null value) geotagged in the tweet.
 
@@ -201,28 +202,29 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     state_abbreviations = [recs[i][6] for i in range(len(recs))]
 
-    def parse(geostr):
-        return geostr.split("   ")  # three spaces. values: name, category (city/rural/suburban/poi), lat, long
-
     def state_from_name(name):
-        abbr = name.split(", ")[1].upper()
-        i = recs[state_abbreviations.find(abbr)][7]
-        return i if i != -1 else None
+        s = name.split(", ")
+        if len(s) != 2: return None  # format unknown todo review potential other formats
+        abbr = s[1].upper()
+        i = state_abbreviations.find(abbr)
+        return recs[i][7] if i != -1 else None
 
     def within_state(geostr):
-        name, category, lat, long = parse(geostr)
-        if lat == "0" and long == "0":
+        name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
+
+        if float(lat) == 0 and float(long) == 0:
             if category != "poi":
                 return state_from_name(name)
             else:
                 return None  # todo give support for points of interest. rerun whole usa_directory when supported.
+
         p = shapely.geometry.Point(float(lat), float(long))
         for i in range(len(shapes)):
             if p.within(shapely.geometry.shape(shapes[i])):
                 return recs[i][7]  # 6 is the two-letter code, 7 is the full name
         return None
 
-    dat = df(path, names=stream_headers)
+    dat = df(path, use_hyp_names=True)
     dat['state'] = dat.location.apply(within_state)
 
     return dat
@@ -238,24 +240,19 @@ def usa_directory(directory=os.getcwd(), update_file=None, hyp_dir_file=None):
         hd = hyperstream_directory(directory=directory, update_file=hyp_dir_file)
     usa = hd[hd['filename'].str.startswith("USA")]
 
-    def nc(f):
-        return append_states(f).dropna().shape[0]
-
-    def uc(f):
-        return len(append_states(f).state.dropna().unique())
+    def num_and_unique(f):
+        return append_states(f).dropna().shape[0], len(append_states(f).state.dropna().unique())
 
     if update_file is not None:
         l = usa.shape[0]
         old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for update_file
         usa = old.merge(usa, on="path", how="left")
         new = usa[pd.isnull(usa.usa_cases)]
-        new['usa_cases'] = new.path.apply(nc)
-        new['unique_territories'] = new.path.apply(uc)
+        new['usa_cases'], new['unique_territories'] = pd.zip(*usa.path.apply(num_and_unique))
         usa = usa.merge(new, on="path", how="right")
         assert usa.shape[0] == l
     else:
-        usa['usa_cases'] = usa.path.apply(nc)
-        usa['unique_territories'] = usa.path.apply(uc)
+        usa['usa_cases'], usa['unique_territories'] = pd.zip(*usa.path.apply(num_and_unique))
 
     return usa
 
@@ -277,21 +274,21 @@ def assert_consistent_colnum():
     return True
 
 
-def get_tab_inconsistency(path, num=18):
+def get_tab_inconsistency(path, num=18, verbose=True):
     with open(path, encoding="utf-8") as f:
         vs = [l for l in f if l.count("\t") != num and l != "" and l != "\n"]
-        print("Number of bad lines located: " + str(len(vs)) + " in file " + path)
-        print("Length of each bad line: " + str([len(l) for l in vs]))
+        if verbose: print("Number of bad lines located: " + str(len(vs)) + " in file " + path)
+        if verbose: print("Length of each bad line: " + str([len(l) for l in vs]))
         return vs
 
 
-def assert_consistent_line_length(verbose=True, stop_after=None):
+def assert_consistent_line_length(verbose=True, stop_after=None, writeout=True):
     '''
     tests that every line of every tsv has the same number of tabs.
     '''
     tsvs = files_from_dir()
     prev = None
-    inconsistencies = open("tab_inconsistency_cases", "w", encoding="utf-8")
+    if writeout: inconsistencies = open("tab_inconsistency_cases", "w", encoding="utf-8")
     good = True
     bads = []
     found = 0
@@ -300,11 +297,11 @@ def assert_consistent_line_length(verbose=True, stop_after=None):
         if 1 != len(set(n)):
             print("inconsistent number of tabs in " + tsv['path'])
             for line in get_tab_inconsistency(tsv['path']):
-                inconsistencies.write(line)
+                if writeout: inconsistencies.write(line)
                 bads.append(line)
                 found += 1
             if stop_after is not None and found >= stop_after:
-                inconsistencies.close()
+                if writeout: inconsistencies.close()
                 raise AssertionError("Inconsistencies found.")
             good = False
         p = n[0]
@@ -316,7 +313,7 @@ def assert_consistent_line_length(verbose=True, stop_after=None):
         else:
             prev = p
         if verbose: print(str(p) + " " + tsv['path'])
-    inconsistencies.close()
+    if writeout: inconsistencies.close()
     assert good
     return True
 
@@ -324,7 +321,7 @@ def assert_consistent_line_length(verbose=True, stop_after=None):
 def run_tests():
     assert_old_accurate()
     assert_consistent_colnum()
-    assert_consistent_line_length() #fails. a more interesting test would be to see if the repair function works.
+    assert_consistent_line_length()  # fails. a more interesting test would be to see if the repair function works.
     return True
 
 
@@ -368,8 +365,8 @@ def repair_hyperstream_tsv(path, names=stream_headers):
         elif len(exp.findall(line)) > 1:  # likely case 2 problem. remove it.
             return None
         else:  # likely case 1 problem. replace duplicate of location with uncorrupted original.
-            s = line.split("\t")[1:18]
-            s.append(s[11])
+            s = line.split("\t")[0:18]
+            s.append(s[11])  # duplicate location
             return tuple(s)  # if hyperstream_type_check(s) else None
 
     with open(path, encoding="utf-8") as f:
