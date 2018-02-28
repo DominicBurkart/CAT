@@ -108,11 +108,11 @@ def ntabs(path):
 
 
 @lru_cache(maxsize=1024)
-def shape(path):
+def shape(path, use_hyperstream_repair = True):
     '''
-    :return: shape of a tsv or csv whose path is passed.
+    :return: shape of a tsv or csv whose path is passed. Uses hyperstream_repair by default.
     '''
-    return df(path).shape
+    return df(path, use_hyperstream_repair=use_hyperstream_repair).shape
 
 
 @lru_cache(maxsize=1)
@@ -154,7 +154,7 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None):
     '''
     assumes stream name does not have the numeral "2" or the period "." (both expected in filename though).
 
-    update_file: path for the last run of this function on this data (saves time of re-calculating)
+    update_file: path for the last run of this function on this data (saves time of re-calculating those cases).
 
     '''
     import pandas as pd
@@ -192,22 +192,28 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     :return: dataframe of tweets from passed tsv with state appended as column
     '''
+    import multiprocessing
     import shapefile  # pip3 install pyshp
-    import shapely.geometry
+    import shapely.geometry  # pip3 install shapely
     global stream_headers
 
     sf = shapefile.Reader(os.path.join(shapefiledir, local_shapefile))
     shapes = sf.shapes()
     recs = sf.records()
 
-    state_abbreviations = [recs[i][6] for i in range(len(recs))]
+    state_abbreviations = [recs[i][5] for i in range(len(recs))]
+
+    threads = multiprocessing.cpu_count() - 1
+    if threads == 0:
+        threads = 1
 
     def state_from_name(name):
         s = name.split(", ")
         if len(s) != 2: return None  # format unknown todo review potential other formats
-        abbr = s[1].upper()
-        i = state_abbreviations.find(abbr)
-        return recs[i][7] if i != -1 else None
+        try:
+            return recs[state_abbreviations.index(s[1].upper())][6]
+        except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
+            return None
 
     def within_state(geostr):
         name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
@@ -218,15 +224,17 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
             else:
                 return None  # todo give support for points of interest. rerun whole usa_directory when supported.
 
-        p = shapely.geometry.Point(float(lat), float(long))
+        point = shapely.geometry.Point(float(lat), float(long))
+
         for i in range(len(shapes)):
-            if p.within(shapely.geometry.shape(shapes[i])):
-                return recs[i][7]  # 6 is the two-letter code, 7 is the full name
+            if point.within(shapely.geometry.shape(shapes[i])):  # .within is a time-intensive operation.
+                return recs[i][6]
+
         return None
 
     dat = df(path, use_hyp_names=True)
-    dat['state'] = dat.location.apply(within_state)
-
+    with multiprocessing.Pool(threads) as p:
+        dat['state'] = p.map(within_state, dat.location.values)  # multiprocessing should be faster here than applying
     return dat
 
 
@@ -248,11 +256,11 @@ def usa_directory(directory=os.getcwd(), update_file=None, hyp_dir_file=None):
         old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for update_file
         usa = old.merge(usa, on="path", how="left")
         new = usa[pd.isnull(usa.usa_cases)]
-        new['usa_cases'], new['unique_territories'] = pd.zip(*usa.path.apply(num_and_unique))
+        new['usa_cases'], new['unique_territories'] = zip(*usa.path.apply(num_and_unique))
         usa = usa.merge(new, on="path", how="right")
         assert usa.shape[0] == l
     else:
-        usa['usa_cases'], usa['unique_territories'] = pd.zip(*usa.path.apply(num_and_unique))
+        usa['usa_cases'], usa['unique_territories'] = zip(*usa.path.apply(num_and_unique))
 
     return usa
 
