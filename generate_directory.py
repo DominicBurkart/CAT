@@ -3,11 +3,18 @@
 Generates a directory of the CSV files from the hyperstream for quick future reference, and
 includes functions for a variety of other hyperstream summarizations.
 '''
+import multiprocessing
 import os
 from functools import lru_cache
 
+import shapely.geometry  # pip3 install shapely
+
 hyperstream_outname = "hyperstream_directory.csv"
 usa_outname = "usa_directory.csv"
+
+threads = multiprocessing.cpu_count() - 1
+if threads == 0:
+    threads = 1
 
 stream_headers = [
     "id",
@@ -108,7 +115,7 @@ def ntabs(path):
 
 
 @lru_cache(maxsize=1024)
-def shape(path, use_hyperstream_repair = True):
+def shape(path, use_hyperstream_repair=True):
     '''
     :return: shape of a tsv or csv whose path is passed. Uses hyperstream_repair by default.
     '''
@@ -178,7 +185,30 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None):
     return pd.DataFrame(tsvs)
 
 
-@lru_cache(maxsize=1)
+def within_state(geostr, shapes, recs, state_abbreviations):
+    name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
+
+    if float(lat) == 0 and float(long) == 0:
+        if category != "poi":
+            s = name.split(", ")
+            if len(s) != 2: return None  # format unknown todo review potential other formats
+            try:
+                return recs[state_abbreviations.index(s[1].upper())][6]
+            except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
+                return None
+        else:
+            return None  # todo give support for points of interest. rerun whole usa_directory when supported.
+
+    point = shapely.geometry.Point(float(lat), float(long))
+
+    for i in range(len(shapes)):
+        if point.within(shapely.geometry.shape(shapes[i])):  # .within is a time-intensive operation.
+            return recs[i][6]
+
+    return None
+
+
+@lru_cache(maxsize=2)
 def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state"):
     '''
     Gives the US state (or null value) geotagged in the tweet.
@@ -194,8 +224,7 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
     '''
     import multiprocessing
     import shapefile  # pip3 install pyshp
-    import shapely.geometry  # pip3 install shapely
-    global stream_headers
+    global stream_headers, threads
 
     sf = shapefile.Reader(os.path.join(shapefiledir, local_shapefile))
     shapes = sf.shapes()
@@ -203,38 +232,10 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     state_abbreviations = [recs[i][5] for i in range(len(recs))]
 
-    threads = multiprocessing.cpu_count() - 1
-    if threads == 0:
-        threads = 1
-
-    def state_from_name(name):
-        s = name.split(", ")
-        if len(s) != 2: return None  # format unknown todo review potential other formats
-        try:
-            return recs[state_abbreviations.index(s[1].upper())][6]
-        except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
-            return None
-
-    def within_state(geostr):
-        name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
-
-        if float(lat) == 0 and float(long) == 0:
-            if category != "poi":
-                return state_from_name(name)
-            else:
-                return None  # todo give support for points of interest. rerun whole usa_directory when supported.
-
-        point = shapely.geometry.Point(float(lat), float(long))
-
-        for i in range(len(shapes)):
-            if point.within(shapely.geometry.shape(shapes[i])):  # .within is a time-intensive operation.
-                return recs[i][6]
-
-        return None
-
     dat = df(path, use_hyp_names=True)
     with multiprocessing.Pool(threads) as p:
-        dat['state'] = p.map(within_state, dat.location.values)  # multiprocessing should be faster here than applying
+        dat['state'] = p.starmap(within_state, [[v, shapes, recs, state_abbreviations] for v in dat.location.values])
+        # multiprocessing should be faster here than applying
     return dat
 
 
@@ -282,7 +283,7 @@ def assert_consistent_colnum():
     return True
 
 
-def get_tab_inconsistency(path, num=18, verbose=True):
+def get_tab_inconsistency(path, num=18, verbose=True):  # todo turn this into a generator
     with open(path, encoding="utf-8") as f:
         vs = [l for l in f if l.count("\t") != num and l != "" and l != "\n"]
         if verbose: print("Number of bad lines located: " + str(len(vs)) + " in file " + path)
@@ -290,13 +291,13 @@ def get_tab_inconsistency(path, num=18, verbose=True):
         return vs
 
 
-def assert_consistent_line_length(verbose=True, stop_after=None, writeout=True):
+def assert_consistent_line_length(verbose=True, stop_after=None, writeout=True, outname="tab_inconsistency_cases"):
     '''
     tests that every line of every tsv has the same number of tabs.
     '''
     tsvs = files_from_dir()
     prev = None
-    if writeout: inconsistencies = open("tab_inconsistency_cases", "w", encoding="utf-8")
+    if writeout: inconsistencies = open(outname, "w", encoding="utf-8")
     good = True
     bads = []
     found = 0
@@ -347,7 +348,7 @@ def run_tests():
 #     return all([stream_types[i](l_case[i]) for i in range(len(l_case)) if l_case[i] != "null"])
 
 
-def repair_hyperstream_tsv(path, names=stream_headers):
+def repair_hyperstream_tsv(path, names=stream_headers, length=19):
     '''
     two known cases of problems:
     1.) extra tabs in the copy of location
@@ -358,7 +359,6 @@ def repair_hyperstream_tsv(path, names=stream_headers):
     I'm comfortable removing these data in cases where repairing could introduce inaccuracy to the data.
     '''
     import re
-
     import pandas as pd
 
     id_exp = r"[0-9]{18}\t"  # matches with twitter ids.
@@ -379,6 +379,59 @@ def repair_hyperstream_tsv(path, names=stream_headers):
 
     with open(path, encoding="utf-8") as f:
         return pd.DataFrame([repaired(l) for l in f if repaired(l) != None], columns=names)
+
+
+def __query_one_file__(path, directory, regex, date, username, location_type):
+    if path == None: raise ValueError("None file passed to __query_one_file__.")
+    all = df(path)
+    selection = None #todo
+    if regex is not None:
+        pass # todo apply regex to column
+    if date is not None:
+        pass
+    if username is not None:
+        pass
+
+
+    return all[selection]
+
+
+def query(tweet_regex_str=None, date=None, topic=None, filepaths=None,
+          username=None, location_type=None,
+          directory=hyperstream_directory(update_file=hyperstream_outname)):
+    import re
+    global threads
+
+    # todo add input validation
+
+    tweet_regex = re.compile(tweet_regex_str) if tweet_regex_str is not None else None
+
+    def one_f_params(f):
+        return [f, directory, tweet_regex, date, topic, username, location_type]
+
+    def many(paths):
+        import multiprocessing
+
+        def reduce(dfs):  # todo: check if pandas has a smarter way of appending a large number of dfs to one another.
+            df1 = dfs[0]
+            for df2 in dfs[1:]:
+                df1 = df1.append(df2)  # todo check that append doesn't need weird params.
+            return df1
+
+        with multiprocessing.Pool(threads) as p:
+            return reduce(p.starmap(__query_one_file__, [one_f_params(f) for f in paths]))
+
+    if filepaths is None:
+        if topic is None:
+            return many(directory['path'].values)
+        else:
+            return many(directory[directory.topic == topic]['path'].values)
+    elif topic is not None:
+        raise NotImplementedError("Partitioning a set of files based on topic is out of scope for query().")
+    elif type(filepaths) == str:
+        return __query_one_file__(**one_f_params(filepaths))  # todo check that it's not one *
+    else:
+        return many([f for f in filepaths])
 
 
 if __name__ == "__main__":
