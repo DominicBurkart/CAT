@@ -1,7 +1,7 @@
 #!/bin/python3
 '''
 Generates a directory of the CSV files from the hyperstream for quick future reference, and
-includes functions for a variety of other hyperstream summarizations.
+includes functions for a variety of other hyperstream summarizations. Provides various utilities for partitioning data.
 '''
 import multiprocessing
 import os
@@ -156,8 +156,7 @@ def df(path, use_hyp_names=False, infer_header=False, use_hyperstream_repair=Tru
             raise e
 
 
-@lru_cache(maxsize=2)
-def hyperstream_directory(directory=os.getcwd(), update_file=None):
+def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False):
     '''
     assumes stream name does not have the numeral "2" or the period "." (both expected in filename though).
 
@@ -166,13 +165,22 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None):
     '''
     import pandas as pd
 
+    if verbose: print("GENERATING HYPERSTREAM DIRECTORY. Looking for tsv files in " + directory)
     tsvs = files_from_dir(directory=directory, suffix=".tsv")
+    if verbose: print("Search complete. " + str(len(tsvs)) + " tsv files found.")
     if update_file is None:
         old = None
     else:
         old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for old_name
+        if verbose: print("Old directory file loaded.")
+    if verbose:
+        i = 0
+        new = 0
     for tsv in tsvs:
         if old is None or tsv['updated'] > os.path.getmtime(update_file):
+            if verbose:
+                new += 1
+                print("New file detected (new file # " + str(new) + "). Analyzing.")
             tsv['nrow'] = nrow(tsv['path'])
             tsv['ncol'] = ncol(tsv['path'])
             tsv['topic'] = tsv['filename'].split("2")[0]  # streaming dates start with 20**
@@ -181,19 +189,33 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None):
             case = old[old.path == tsv['path']].iloc[0].to_dict()
             for k in case.keys():
                 tsv[k] = case[k]
+        if verbose:
+            i += 1
+            if (len(tsvs) / i) % 10 == 0:
+                print("Ratio of files checked: " + str(i / len(tsvs)))
+                print("New files recorded so far: " + str(new))
 
+    if verbose:
+        print("hyperstream_directory complete. " + str(new) + \
+              " new files recorded (total of " + str(i) + \
+              " files recorded, including those in update_file). Converting result to dataframe to be returned.")
     return pd.DataFrame(tsvs)
 
 
-def within_state(geostr, shapes, recs, state_abbreviations):
+def within_state(geostr, shapes, recs, state_abbreviations, verbose, superindex, supertot):
     name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
+
+    if verbose and ((superindex - 1) / supertot) % 20 == 0:
+        print("Ratio of locations analyzed in this file: " + str((superindex - 1) / supertot))
 
     if float(lat) == 0 and float(long) == 0:
         if category != "poi":
             s = name.split(", ")
             if len(s) != 2: return None  # format unknown todo review potential other formats
             try:
-                return recs[state_abbreviations.index(s[1].upper())][6]
+                v = recs[state_abbreviations.index(s[1].upper())][6]
+                if verbose: print("State found via name. Name: " + name + ". State: " + v)
+                return v
             except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
                 return None
         else:
@@ -203,13 +225,14 @@ def within_state(geostr, shapes, recs, state_abbreviations):
 
     for i in range(len(shapes)):
         if point.within(shapely.geometry.shape(shapes[i])):  # .within is a time-intensive operation.
+            if verbose: print("State found via geocoord. State: " + recs[i][6])
             return recs[i][6]
 
     return None
 
 
-@lru_cache(maxsize=2)
-def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state"):
+def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state",
+                  verbose=0):
     '''
     Gives the US state (or null value) geotagged in the tweet.
 
@@ -232,35 +255,81 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     state_abbreviations = [recs[i][5] for i in range(len(recs))]
 
+    def within_appl(geostr):
+        name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
+        if float(lat) == 0 and float(long) == 0:
+            if category != "poi":
+                s = name.split(", ")
+                if len(s) != 2: return None  # format unknown todo review potential other formats
+                try:
+                    v = recs[state_abbreviations.index(s[1].upper())][6]
+                    if verbose > 1: print("State found via name. Name: " + name + ". State: " + v)
+                    return v
+                except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
+                    return None
+            else:
+                return None  # todo give support for points of interest. rerun whole usa_directory when supported.
+
+        point = shapely.geometry.Point(float(lat), float(long))
+
+        for i in range(len(shapes)):
+            if point.within(shapely.geometry.shape(shapes[i])):  # .within is a time-intensive operation.
+                if verbose > 1: print("State found via geocoord. State: " + recs[i][6])
+                return recs[i][6]
+
+        return None
+
+    v = True if verbose > 1 else False
+
     dat = df(path, use_hyp_names=True)
+    l = len(dat.location.values)
     with multiprocessing.Pool(threads) as p:
-        dat['state'] = p.starmap(within_state, [[v, shapes, recs, state_abbreviations] for v in dat.location.values])
-        # multiprocessing should be faster here than applying
+        dat['state'] = p.starmap(within_state, [[dat.location.iloc[i], shapes, recs, state_abbreviations, v, i, l] \
+                                                for i in range(l)])
+        # multiprocessing may be faster here than applying?
     return dat
 
 
-@lru_cache(maxsize=1)
-def usa_directory(directory=os.getcwd(), update_file=None, hyp_dir_file=None):
+def usa_directory(directory=os.getcwd(), update_file=None, hd=None, hd_file=hyperstream_outname, verbose=0):
     import pandas as pd
 
-    if hyp_dir_file is None:
-        hd = hyperstream_directory(directory=directory)
-    else:
-        hd = hyperstream_directory(directory=directory, update_file=hyp_dir_file)
-    usa = hd[hd['filename'].str.startswith("USA")]
+    if verbose > 0: print("GENERATING USA DIRECTORY.")
+
+    if hd is None:
+        if verbose: print("Generating hyperstream directory as no directory was passed.")
+        hd = hyperstream_directory(directory=directory, update_file=hd_file)
+    usa = hd[hd.topic == "USA"]
+
+    if verbose > 0: current_vs_total = [0, usa.shape[0]]
 
     def num_and_unique(f):
-        return append_states(f).dropna().shape[0], len(append_states(f).state.dropna().unique())
+        a = append_states(f, verbose=verbose)
+
+        if verbose > 0:
+            current_vs_total[0] += 1
+            if (current_vs_total[0] // current_vs_total[1]) % 10:
+                print("Ratio of files analyzed: " + str(current_vs_total[0] / current_vs_total[1]))
+
+        return a.dropna().shape[0], len(a.state.dropna().unique())
 
     if update_file is not None:
+        if verbose: print("Using update_file passed.")
+
         l = usa.shape[0]
         old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for update_file
         usa = old.merge(usa, on="path", how="left")
         new = usa[pd.isnull(usa.usa_cases)]
+
+        if verbose > 0: print("Number of new files to update: " + str(new.shape[0]))
+
         new['usa_cases'], new['unique_territories'] = zip(*usa.path.apply(num_and_unique))
         usa = usa.merge(new, on="path", how="right")
+
         assert usa.shape[0] == l
     else:
+        if verbose > 0:
+            print("No update_file passed, so analyzing all USA topic files in passed directory frame.\n" + \
+                  "Number of files to record: " + str(usa.shape[0]))
         usa['usa_cases'], usa['unique_territories'] = zip(*usa.path.apply(num_and_unique))
 
     return usa
@@ -381,45 +450,46 @@ def repair_hyperstream_tsv(path, names=stream_headers, length=19):
         return pd.DataFrame([repaired(l) for l in f if repaired(l) != None], columns=names)
 
 
-def __query_one_file__(path, directory, regex, date, username, location_type):
-    if path == None: raise ValueError("None file passed to __query_one_file__.")
-    all = df(path)
-    selection = None #todo
+def __query_one_file__(path, directory, regex, date, username, location_type, author_id, language):  # todo untested
+    start = "all["
+    selection = []
     if regex is not None:
-        pass # todo apply regex to column
+        selection.append("(all.message.str.contains(regex))")
     if date is not None:
-        pass
+        selection.append("(all.date == date)")
     if username is not None:
-        pass
+        selection.append("(all.username.str.lower() == username.lower())")
+    if location_type is not None:
+        selection.append("(all.location.split("   ")[1] == location_type)")
+    if author_id is not None:
+        selection.append("(all.author_ID == author_id)")
+    if language is not None:
+        selection.append("(all.language == language)")
+    end = "]"
+
+    all = df(path)
+    return eval(start + " & ".join(selection) + end)
 
 
-    return all[selection]
-
-
-def query(tweet_regex_str=None, date=None, topic=None, filepaths=None,
-          username=None, location_type=None,
-          directory=hyperstream_directory(update_file=hyperstream_outname)):
-    import re
+def query(tweet_regex=None, date=None, topic=None, filepaths=None,
+          username=None, location_type=None, author_id=None, language=None,
+          directory=None):  # todo untested
+    # hyperstream_directory(update_file=hyperstream_outname)
     global threads
+
+    if directory is None:
+        global hyperstream_directory, hyperstream_outname
+        directory = hyperstream_directory(update_file=hyperstream_outname)
 
     # todo add input validation
 
-    tweet_regex = re.compile(tweet_regex_str) if tweet_regex_str is not None else None
-
     def one_f_params(f):
-        return [f, directory, tweet_regex, date, topic, username, location_type]
+        return [f, directory, tweet_regex, date, username, location_type, author_id, language]
 
     def many(paths):
         import multiprocessing
-
-        def reduce(dfs):  # todo: check if pandas has a smarter way of appending a large number of dfs to one another.
-            df1 = dfs[0]
-            for df2 in dfs[1:]:
-                df1 = df1.append(df2)  # todo check that append doesn't need weird params.
-            return df1
-
         with multiprocessing.Pool(threads) as p:
-            return reduce(p.starmap(__query_one_file__, [one_f_params(f) for f in paths]))
+            return pd.concat(p.starmap(__query_one_file__, [one_f_params(f) for f in paths]), ignore_index=True)
 
     if filepaths is None:
         if topic is None:
@@ -429,20 +499,77 @@ def query(tweet_regex_str=None, date=None, topic=None, filepaths=None,
     elif topic is not None:
         raise NotImplementedError("Partitioning a set of files based on topic is out of scope for query().")
     elif type(filepaths) == str:
-        return __query_one_file__(**one_f_params(filepaths))  # todo check that it's not one *
+        return __query_one_file__(*one_f_params(filepaths))
     else:
-        return many([f for f in filepaths])
+        return many(filepaths)  # assumes iterable
+
+
+def random_sample(n, directory, seed=1001):  # todo untested
+    '''
+    :param n: total number of tweets to pull.
+    :param directory: directory dataframe (with same columns as hyperstream_directory)
+    :param seed: initial seed for the numpy random number generator
+    :return:
+    '''
+    import numpy.random
+    import pandas as pd
+    rando = numpy.random.RandomState(seed=seed)
+    from_each = directory.nrow * n // directory.nrow.sum()  # roughly correct
+
+    def get(i):
+        dc = directory.iloc[i]
+        one = df(directory.path[i]).sample(n=from_each[i], random_state=rando)
+        for v in dc.index:
+            one[v] = dc[v]
+        return one
+
+    # modify from_each to make sure we get precisely n samples.
+    deficit = n - sum(from_each)
+    if deficit > 0:
+        addis = rando.random_integers(len(from_each) - 1, size=(deficit,))
+        for i in addis:
+            from_each[i] += 1
+    elif deficit < 0:
+        subis = rando.random_integers(len(from_each) - 1, size=(abs(deficit),))
+        for i in subis:
+            from_each[i] -= 1
+
+    assert n == sum(from_each)
+
+    if directory.shape[0] == 1:
+        return get(i)
+    return pd.concat([get(i) for i in range(len(from_each))], ignore_index=True)
+
+
+def migrate_and_reformat_known_usa(target, usa, compression="gzip"):
+    import os
+    for i in range(usa.shape[0]):
+        print("Migrating file: " + usa.filename.iloc[i] + " (" + str(i + 1) + " out of " + str(usa.shape[0]) + ").")
+        append_states(usa.path.iloc[i]).dropna().to_csv(
+            os.path.join(target, usa.filename.iloc[i].split(".")[0] + ".csv.gz"),
+            compression=compression)
+
+
+def usa_first_gzips():
+    hd = hyperstream_directory(update_file=hyperstream_outname)
+    migrate_and_reformat_known_usa("/home/dominic/shiny/hyperstream/usa_gzips", hd[hd.topic == "USA"])
 
 
 if __name__ == "__main__":
     import pandas as pd
 
-    try:
-        hyperstream_directory(update_file=hyperstream_outname).to_csv(hyperstream_outname, index=False)
-    except FileNotFoundError:
-        hyperstream_directory().to_csv(hyperstream_outname, index=False)
+    print("generate_directory running.")
 
     try:
-        usa_directory(update_file=usa_outname, hyp_dir_file=hyperstream_outname).to_csv(usa_outname, index=False)
+        hd = hyperstream_directory(update_file=hyperstream_outname, verbose=True)
     except FileNotFoundError:
-        usa_directory(hyp_dir_file=hyperstream_outname).to_csv(usa_outname, index=False)
+        print("Invalid update_file passed. Rerunning without update_file.")
+        hd = hyperstream_directory(verbose=True)
+    hd.to_csv(hyperstream_outname, index=False)
+
+    try:
+        ud = usa_directory(update_file=usa_outname, hd=hd, verbose=1)
+    except FileNotFoundError:
+        print("Invalid update_file passed. Rerunning without update_file.")
+        ud = usa_directory(hd=hd, verbose=1)
+    ud.to_csv(usa_outname, index=False)
