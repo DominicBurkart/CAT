@@ -12,9 +12,9 @@ import shapely.geometry  # pip3 install shapely
 hyperstream_outname = "hyperstream_directory.csv"
 usa_outname = "usa_directory.csv"
 
-threads = multiprocessing.cpu_count() - 1
-if threads == 0:
-    threads = 1
+threads = (multiprocessing.cpu_count() * 2) - 2
+if threads < 2:
+    threads = 2
 
 stream_headers = [
     "id",
@@ -38,7 +38,7 @@ stream_headers = [
     "location_dup"
 ]
 
-stream_types = [  # values for each field
+type_list = [  # values for each field
     float,
     str,
     str,
@@ -59,6 +59,10 @@ stream_types = [  # values for each field
     str,
     str
 ]
+
+stream_types = dict()
+for i in range(len(stream_headers)):
+    stream_types[stream_headers[i]] = type_list[i]
 
 
 @lru_cache(maxsize=1)
@@ -125,18 +129,18 @@ def shape(path, use_hyperstream_repair=True):
 @lru_cache(maxsize=1)
 def df(path, use_hyp_names=False, infer_header=False, use_hyperstream_repair=True):
     import pandas as pd
-    global stream_headers
+    global stream_headers, stream_types
 
     if use_hyp_names and infer_header:
         raise TypeError("Use of hyperstream column names AND header inference cannot both be set to true.")
 
     try:
-        if path.endswith(".csv"):
+        if path.endswith(".csv.gz") or path.endswith(".csv"):
             if not infer_header:
                 if use_hyp_names is False:
                     return pd.read_csv(path, header=None)
                 else:
-                    return pd.read_csv(path, header=None, names=stream_headers)
+                    return pd.read_csv(path, header=None, names=stream_headers, dtype=stream_types)
             else:
                 return pd.read_csv(path)
         elif path.endswith(".tsv"):
@@ -144,14 +148,14 @@ def df(path, use_hyp_names=False, infer_header=False, use_hyperstream_repair=Tru
                 if use_hyp_names is False:
                     return pd.read_csv(path, delimiter="\t", header=None)
                 else:
-                    return pd.read_csv(path, delimiter="\t", header=None, names=stream_headers)
+                    return pd.read_csv(path, delimiter="\t", header=None, names=stream_headers, dtype=stream_types)
             else:
                 return pd.read_csv(path, delimiter="\t")
         else:
             raise ValueError("function df passed a file of unknown type. Files must terminate in .csv or .tsv.")
     except pd.errors.ParserError as e:
         if use_hyperstream_repair:
-            return repair_hyperstream_tsv(path, names=stream_headers)
+            return repair_hyperstream_tsv(path, names=stream_headers, dtype=stream_types)
         else:
             raise e
 
@@ -245,7 +249,6 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     :return: dataframe of tweets from passed tsv with state appended as column
     '''
-    import multiprocessing
     import shapefile  # pip3 install pyshp
     global stream_headers, threads
 
@@ -279,60 +282,27 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
         return None
 
-    v = True if verbose > 1 else False
-
     dat = df(path, use_hyp_names=True)
-    l = len(dat.location.values)
-    with multiprocessing.Pool(threads) as p:
-        dat['state'] = p.starmap(within_state, [[dat.location.iloc[i], shapes, recs, state_abbreviations, v, i, l] \
-                                                for i in range(l)])
-        # multiprocessing may be faster here than applying?
+    dat['state'] = dat.location.apply(within_appl)
+
+    # l = len(dat.location.values)
+    # v = True if verbose > 1 else False
+    # with multiprocessing.Pool(threads) as p:
+    #     dat['state'] = p.starmap(within_state, [[dat.location.iloc[i], shapes, recs, state_abbreviations, v, i, l] \
+    #                                             for i in range(l)])
+    #     # multiprocessing may be faster here than applying?
     return dat
 
 
 def usa_directory(directory=os.getcwd(), update_file=None, hd=None, hd_file=hyperstream_outname, verbose=0):
-    import pandas as pd
-
     if verbose > 0: print("GENERATING USA DIRECTORY.")
-
-    if hd is None:
-        if verbose: print("Generating hyperstream directory as no directory was passed.")
-        hd = hyperstream_directory(directory=directory, update_file=hd_file)
-    usa = hd[hd.topic == "USA"]
-
-    if verbose > 0: current_vs_total = [0, usa.shape[0]]
-
-    def num_and_unique(f):
-        a = append_states(f, verbose=verbose)
-
-        if verbose > 0:
-            current_vs_total[0] += 1
-            if (current_vs_total[0] // current_vs_total[1]) % 10:
-                print("Ratio of files analyzed: " + str(current_vs_total[0] / current_vs_total[1]))
-
-        return a.dropna().shape[0], len(a.state.dropna().unique())
-
     if update_file is not None:
-        if verbose: print("Using update_file passed.")
-
-        l = usa.shape[0]
-        old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for update_file
-        usa = old.merge(usa, on="path", how="left")
-        new = usa[pd.isnull(usa.usa_cases)]
-
-        if verbose > 0: print("Number of new files to update: " + str(new.shape[0]))
-
-        new['usa_cases'], new['unique_territories'] = zip(*usa.path.apply(num_and_unique))
-        usa = usa.merge(new, on="path", how="right")
-
-        assert usa.shape[0] == l
+        raise NotImplementedError
     else:
-        if verbose > 0:
-            print("No update_file passed, so analyzing all USA topic files in passed directory frame.\n" + \
-                  "Number of files to record: " + str(usa.shape[0]))
-        usa['usa_cases'], usa['unique_territories'] = zip(*usa.path.apply(num_and_unique))
-
-    return usa
+        gzips = files_from_dir(suffix=".csv.gz")
+        for csv in gzips:
+            frame = df(csv)
+    raise NotImplementedError
 
 
 def assert_old_accurate():
@@ -447,7 +417,7 @@ def repair_hyperstream_tsv(path, names=stream_headers, length=19):
             return tuple(s)  # if hyperstream_type_check(s) else None
 
     with open(path, encoding="utf-8") as f:
-        return pd.DataFrame([repaired(l) for l in f if repaired(l) != None], columns=names)
+        return pd.DataFrame([repaired(l) for l in f if repaired(l) != None], columns=names, dtype=stream_types)
 
 
 def __query_one_file__(path, directory, regex, date, username, location_type, author_id, language):  # todo untested
@@ -541,13 +511,18 @@ def random_sample(n, directory, seed=1001):  # todo untested
     return pd.concat([get(i) for i in range(len(from_each))], ignore_index=True)
 
 
-def migrate_and_reformat_known_usa(target, usa, compression="gzip"):
-    import os
-    for i in range(usa.shape[0]):
-        print("Migrating file: " + usa.filename.iloc[i] + " (" + str(i + 1) + " out of " + str(usa.shape[0]) + ").")
-        append_states(usa.path.iloc[i]).dropna().to_csv(
-            os.path.join(target, usa.filename.iloc[i].split(".")[0] + ".csv.gz"),
-            compression=compression)
+def usa_mig_helper(index, length, filename, path, target):
+    print("Beginning migration for file: " + filename + " (" + str(index + 1) + " out of " + str(length) + ").")
+    append_states(path).dropna().to_csv(
+        os.path.join(target, filename.split(".")[0] + ".csv.gz"),
+        compression="gzip", index=False)
+    print("Migration for file " + filename + " complete.")
+
+
+def migrate_and_reformat_known_usa(target, usa):
+    with multiprocessing.Pool(threads) as p:
+        p.starmap(usa_mig_helper,
+                  [[i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target] for i in range(usa.shape[0])])
 
 
 def usa_first_gzips():
