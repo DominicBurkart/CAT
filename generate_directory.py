@@ -7,12 +7,13 @@ import multiprocessing
 import os
 from functools import lru_cache
 
+import numpy as np
 import shapely.geometry  # pip3 install shapely
 
 hyperstream_outname = "hyperstream_directory.csv"
 usa_outname = "usa_directory.csv"
 
-threads = (multiprocessing.cpu_count() * 2) - 2
+threads = multiprocessing.cpu_count() - 1
 if threads < 2:
     threads = 2
 
@@ -39,23 +40,23 @@ stream_headers = [
 ]
 
 type_list = [  # values for each field
-    float,
+    str,  # really an int but they get bigger than int64s.
     str,
     str,
     str,
-    float,
+    np.float64,
     bool,
     str,
     str,
-    int,
+    np.uint64,
     str,
     str,
     str,
     str,
     str,
     bool,
-    int,
-    int,
+    np.uint64,
+    np.uint64,
     str,
     str
 ]
@@ -119,45 +120,28 @@ def ntabs(path):
 
 
 @lru_cache(maxsize=1024)
-def shape(path, use_hyperstream_repair=True):
+def shape(path):
     '''
     :return: shape of a tsv or csv whose path is passed. Uses hyperstream_repair by default.
     '''
-    return df(path, use_hyperstream_repair=use_hyperstream_repair).shape
+    return df(path).shape
 
 
-@lru_cache(maxsize=1)
-def df(path, use_hyp_names=False, infer_header=False, use_hyperstream_repair=True):
+@lru_cache(maxsize=2)
+def df(path):
     import pandas as pd
     global stream_headers, stream_types
 
-    if use_hyp_names and infer_header:
-        raise TypeError("Use of hyperstream column names AND header inference cannot both be set to true.")
-
     try:
         if path.endswith(".csv.gz") or path.endswith(".csv"):
-            if not infer_header:
-                if use_hyp_names is False:
-                    return pd.read_csv(path, header=None)
-                else:
-                    return pd.read_csv(path, header=None, names=stream_headers, dtype=stream_types)
-            else:
-                return pd.read_csv(path)
+            return pd.read_csv(path, header=None, names=stream_headers, dtype=stream_types)
         elif path.endswith(".tsv"):
-            if not infer_header:
-                if use_hyp_names is False:
-                    return pd.read_csv(path, delimiter="\t", header=None)
-                else:
-                    return pd.read_csv(path, delimiter="\t", header=None, names=stream_headers, dtype=stream_types)
-            else:
-                return pd.read_csv(path, delimiter="\t")
+            return pd.read_csv(path, delimiter="\t", header=None, names=stream_headers, dtype=stream_types)
         else:
-            raise ValueError("function df passed a file of unknown type. Files must terminate in .csv or .tsv.")
-    except pd.errors.ParserError as e:
-        if use_hyperstream_repair:
-            return repair_hyperstream_tsv(path, names=stream_headers, dtype=stream_types)
-        else:
-            raise e
+            raise NotImplementedError(
+                "function df passed a file of unknown type. Files must terminate in .csv or .tsv.")
+    except (pd.errors.ParserError, ValueError) as e:
+        return repair_hyperstream_tsv(path)
 
 
 def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False):
@@ -282,7 +266,7 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
         return None
 
-    dat = df(path, use_hyp_names=True)
+    dat = df(path)
     dat['state'] = dat.location.apply(within_appl)
 
     # l = len(dat.location.values)
@@ -387,7 +371,7 @@ def run_tests():
 #     return all([stream_types[i](l_case[i]) for i in range(len(l_case)) if l_case[i] != "null"])
 
 
-def repair_hyperstream_tsv(path, names=stream_headers, length=19):
+def repair_hyperstream_tsv(path, length=19, verbose=True):
     '''
     two known cases of problems:
     1.) extra tabs in the copy of location
@@ -400,16 +384,22 @@ def repair_hyperstream_tsv(path, names=stream_headers, length=19):
     import re
     import pandas as pd
 
+    global stream_types, stream_headers
+
     id_exp = r"[0-9]{18}\t"  # matches with twitter ids.
 
     exp = re.compile(id_exp)
+
+    bads = [0]
 
     def repaired(line):
         if line.count("\t") == 18:  # good
             return tuple(line.split("\t"))
         elif len(exp.findall(line)) == 0:  # likely second line of a case 1 or 2 problem. remove it.
+            bads[0] += 1
             return None
         elif len(exp.findall(line)) > 1:  # likely case 2 problem. remove it.
+            bads[0] += 1
             return None
         else:  # likely case 1 problem. replace duplicate of location with uncorrupted original.
             s = line.split("\t")[0:18]
@@ -417,7 +407,12 @@ def repair_hyperstream_tsv(path, names=stream_headers, length=19):
             return tuple(s)  # if hyperstream_type_check(s) else None
 
     with open(path, encoding="utf-8") as f:
-        return pd.DataFrame([repaired(l) for l in f if repaired(l) != None], columns=names, dtype=stream_types)
+        df = pd.DataFrame.from_records([repaired(l) for l in f if repaired(l) != None],
+                                       columns=stream_headers).astype(stream_types)
+        if verbose:
+            import os
+            print("# misformatted cases excluded from file " + os.path.basename(path) + ": " + str(bads[0]))
+        return df
 
 
 def __query_one_file__(path, directory, regex, date, username, location_type, author_id, language):  # todo untested
@@ -438,7 +433,13 @@ def __query_one_file__(path, directory, regex, date, username, location_type, au
     end = "]"
 
     all = df(path)
-    return eval(start + " & ".join(selection) + end)
+    if len(selection) > 1:
+        return eval(start + " & ".join(selection) + end)
+    elif selection == 1:
+        return eval(start+selection[0][1:-1]+end)
+    else:
+        return eval(all)
+
 
 
 def query(tweet_regex=None, date=None, topic=None, filepaths=None,
