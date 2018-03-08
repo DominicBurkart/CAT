@@ -13,9 +13,9 @@ import shapely.geometry  # pip3 install shapely
 hyperstream_outname = "hyperstream_directory.csv"
 usa_outname = "usa_directory.csv"
 
-threads = multiprocessing.cpu_count() - 1
-if threads < 2:
-    threads = 2
+threads = multiprocessing.cpu_count() - 2  # conservative. increase to taste.
+if threads < 1:
+    threads = 1
 
 stream_headers = [
     "id",
@@ -64,6 +64,8 @@ type_list = [  # values for each field
 stream_types = dict()
 for i in range(len(stream_headers)):
     stream_types[stream_headers[i]] = type_list[i]
+
+us_dtype = {"name": str, "category": str, "lat": np.float64, "long": np.float64, "us_state": str}
 
 
 @lru_cache(maxsize=1)
@@ -130,17 +132,19 @@ def shape(path):
 @lru_cache(maxsize=2)
 def df(path):
     import pandas as pd
+    import os
     global stream_headers, stream_types
 
     try:
         if path.endswith(".csv.gz") or path.endswith(".csv"):
-            return pd.read_csv(path, header=None, names=stream_headers, dtype=stream_types)
+            t = {**stream_types, **us_dtype} if os.path.basename(path).upper().startswith("USA") else stream_types
+            return pd.read_csv(path, dtype=t, compression="gzip")
         elif path.endswith(".tsv"):
             return pd.read_csv(path, delimiter="\t", header=None, names=stream_headers, dtype=stream_types)
         else:
             raise NotImplementedError(
-                "function df passed a file of unknown type. Files must terminate in .csv or .tsv.")
-    except (pd.errors.ParserError, ValueError) as e:
+                "function df passed a file of unknown type. Files must terminate in .csv.gz or .tsv.")
+    except (pd.errors.ParserError, ValueError):
         return repair_hyperstream_tsv(path)
 
 
@@ -190,35 +194,6 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
     return pd.DataFrame(tsvs)
 
 
-def within_state(geostr, shapes, recs, state_abbreviations, verbose, superindex, supertot):
-    name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
-
-    if verbose and ((superindex - 1) / supertot) % 20 == 0:
-        print("Ratio of locations analyzed in this file: " + str((superindex - 1) / supertot))
-
-    if float(lat) == 0 and float(long) == 0:
-        if category != "poi":
-            s = name.split(", ")
-            if len(s) != 2: return None  # format unknown todo review potential other formats
-            try:
-                v = recs[state_abbreviations.index(s[1].upper())][6]
-                if verbose: print("State found via name. Name: " + name + ". State: " + v)
-                return v
-            except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
-                return None
-        else:
-            return None  # todo give support for points of interest. rerun whole usa_directory when supported.
-
-    point = shapely.geometry.Point(float(lat), float(long))
-
-    for i in range(len(shapes)):
-        if point.within(shapely.geometry.shape(shapes[i])):  # .within is a time-intensive operation.
-            if verbose: print("State found via geocoord. State: " + recs[i][6])
-            return recs[i][6]
-
-    return None
-
-
 def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state",
                   verbose=0):
     '''
@@ -233,49 +208,73 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     :return: dataframe of tweets from passed tsv with state appended as column
     '''
+    import numpy as np
+    import pandas as pd
     import shapefile  # pip3 install pyshp
-    global stream_headers, threads
+    global stream_headers, threads, us_dtype
 
     sf = shapefile.Reader(os.path.join(shapefiledir, local_shapefile))
     shapes = sf.shapes()
     recs = sf.records()
-
+    shapelies = [shapely.geometry.shape(shapes[i]) for i in range(len(shapes))]
     state_abbreviations = [recs[i][5] for i in range(len(recs))]
 
-    def within_appl(geostr):
-        name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
-        if float(lat) == 0 and float(long) == 0:
+    out = []
+
+    dat = df(path)
+
+    for geostr in dat.location.values:
+        try:
+            name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
+        except ValueError:
+            print("BAD GEOSTR PASSED TO APPEND_STATES FROM FILE "+path)
+            out.append({"name":"Unknown", "category":"Unknown", "lat":np.nan, "long":np.nan, "us_state":"Unknown"})
+            continue
+        try:
+            lat, long = float(lat), float(long)
+        except ValueError:
+            print("BAD LAT / LONG VALUES PASSED TO APPEND_STATES FROM FILE " + path)
+            lat, long = 0., 0.
+
+        case = {"name": name, "category": category, "lat": lat, "long": long}
+
+        if lat == 0 and long == 0:
+            case['lat'], case['long'] = np.nan, np.nan
             if category != "poi":
                 s = name.split(", ")
-                if len(s) != 2: return None  # format unknown todo review potential other formats
+                if len(s) != 2:
+                    case['us_state'] = "Unknown"
+                    out.append(case)
+                    continue
+                    # format unknown todo review potential other formats
                 try:
                     v = recs[state_abbreviations.index(s[1].upper())][6]
                     if verbose > 1: print("State found via name. Name: " + name + ". State: " + v)
-                    return v
+                    case['us_state'] = v
+                    out.append(case)
+                    continue
                 except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
-                    return None
-            else:
-                return None  # todo give support for points of interest. rerun whole usa_directory when supported.
+                    # todo deal with cases such as "Lousiana, USA"
+                    case['us_state'] = "Unknown"
+                    out.append(case)
+            # todo give support for points of interest. rerun whole usa_directory when supported.
+            case['us_state'] = "Unknown"
+            out.append(case)
+            continue
 
-        point = shapely.geometry.Point(float(lat), float(long))
+        point = shapely.geometry.Point(lat, long)
 
-        for i in range(len(shapes)):
-            if point.within(shapely.geometry.shape(shapes[i])):  # .within is a time-intensive operation.
+        for i in range(len(shapelies)):
+            if point.within(shapelies[i]):
                 if verbose > 1: print("State found via geocoord. State: " + recs[i][6])
-                return recs[i][6]
+                case['us_state'] = recs[i][6]
+                out.append(case)
+                break
+        else:
+            case['us_state'] = "Unknown"
+            out.append(case)
 
-        return None
-
-    dat = df(path)
-    dat['state'] = dat.location.apply(within_appl)
-
-    # l = len(dat.location.values)
-    # v = True if verbose > 1 else False
-    # with multiprocessing.Pool(threads) as p:
-    #     dat['state'] = p.starmap(within_state, [[dat.location.iloc[i], shapes, recs, state_abbreviations, v, i, l] \
-    #                                             for i in range(l)])
-    #     # multiprocessing may be faster here than applying?
-    return dat
+    return pd.concat([dat, pd.DataFrame(out).astype(us_dtype)], axis=1)
 
 
 def usa_directory(directory=os.getcwd(), update_file=None, hd=None, hd_file=hyperstream_outname, verbose=0):
@@ -286,7 +285,7 @@ def usa_directory(directory=os.getcwd(), update_file=None, hd=None, hd_file=hype
         gzips = files_from_dir(suffix=".csv.gz")
         for csv in gzips:
             frame = df(csv)
-    raise NotImplementedError
+            raise NotImplementedError
 
 
 def assert_old_accurate():
@@ -436,10 +435,9 @@ def __query_one_file__(path, directory, regex, date, username, location_type, au
     if len(selection) > 1:
         return eval(start + " & ".join(selection) + end)
     elif selection == 1:
-        return eval(start+selection[0][1:-1]+end)
+        return eval(start + selection[0][1:-1] + end)
     else:
         return eval(all)
-
 
 
 def query(tweet_regex=None, date=None, topic=None, filepaths=None,
