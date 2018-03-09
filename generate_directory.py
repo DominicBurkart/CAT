@@ -129,7 +129,7 @@ def shape(path):
     return df(path).shape
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=1)
 def df(path):
     import pandas as pd
     import os
@@ -218,6 +218,7 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
     recs = sf.records()
     shapelies = [shapely.geometry.shape(shapes[i]) for i in range(len(shapes))]
     state_abbreviations = [recs[i][5] for i in range(len(recs))]
+    state_names = [recs[i][6].lower() for i in range(len(recs))]
 
     out = []
 
@@ -225,10 +226,12 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     for geostr in dat.location.values:
         try:
-            name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
+            name, category, lat, long = geostr.split(
+                "   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
         except ValueError:
-            print("BAD GEOSTR PASSED TO APPEND_STATES FROM FILE "+path)
-            out.append({"name":"Unknown", "category":"Unknown", "lat":np.nan, "long":np.nan, "us_state":"Unknown"})
+            print("BAD GEOSTR PASSED TO APPEND_STATES FROM FILE " + path)
+            print(geostr)
+            out.append({"name": "Unknown", "category": "Unknown", "lat": np.nan, "long": np.nan, "us_state": "Unknown"})
             continue
         try:
             lat, long = float(lat), float(long)
@@ -254,10 +257,15 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
                     out.append(case)
                     continue
                 except ValueError:  # thrown by abbreviations.index(abbreviation) when value not in list
-                    # todo deal with cases such as "Lousiana, USA"
-                    case['us_state'] = "Unknown"
-                    out.append(case)
-            # todo give support for points of interest. rerun whole usa_directory when supported.
+                    try:
+                        v = recs[state_names.index(s[0].lower())][6]
+                        if verbose > 1: print("State found via name. Name: " + name + ". State: " + v)
+                        case['us_state'] = v
+                        out.append(case)
+                        continue
+                    except ValueError:
+                        pass  # make sure this pass is always followed by an append / continue
+            # todo give support for points of interest. regenerate entire usa_directory when supported.
             case['us_state'] = "Unknown"
             out.append(case)
             continue
@@ -400,10 +408,13 @@ def repair_hyperstream_tsv(path, length=19, verbose=True):
         elif len(exp.findall(line)) > 1:  # likely case 2 problem. remove it.
             bads[0] += 1
             return None
-        else:  # likely case 1 problem. replace duplicate of location with uncorrupted original.
-            s = line.split("\t")[0:18]
-            s.append(s[11])  # duplicate location
-            return tuple(s)  # if hyperstream_type_check(s) else None
+        else:
+            try: # likely case 1 problem. replace duplicate of location with uncorrupted original.
+                s = line.split("\t")[0:18]
+                s.append(s[11])  # duplicate location
+                return tuple(s)  # if hyperstream_type_check(s) else None
+            except IndexError:
+                return None #very rare error wherein there aren't 11 values.
 
     with open(path, encoding="utf-8") as f:
         df = pd.DataFrame.from_records([repaired(l) for l in f if repaired(l) != None],
@@ -512,16 +523,21 @@ def random_sample(n, directory, seed=1001):  # todo untested
 
 def usa_mig_helper(index, length, filename, path, target):
     print("Beginning migration for file: " + filename + " (" + str(index + 1) + " out of " + str(length) + ").")
-    append_states(path).dropna().to_csv(
+    d = append_states(path)
+    d[d['us_state'] != "Unknown"].to_csv(
         os.path.join(target, filename.split(".")[0] + ".csv.gz"),
         compression="gzip", index=False)
     print("Migration for file " + filename + " complete.")
 
 
-def migrate_and_reformat_known_usa(target, usa):
-    with multiprocessing.Pool(threads) as p:
-        p.starmap(usa_mig_helper,
-                  [[i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target] for i in range(usa.shape[0])])
+def migrate_and_reformat_known_usa(target, usa, multi=False):
+    if multi:  # warning: multithreading here slowed down and eventually hung.
+        with multiprocessing.Pool(threads) as p:
+            p.starmap(usa_mig_helper,
+                      [[i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target] for i in range(usa.shape[0])])
+    else:
+        for i in range(usa.shape[0]):
+            usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target)
 
 
 def usa_first_gzips():
