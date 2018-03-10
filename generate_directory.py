@@ -2,6 +2,8 @@
 '''
 Generates a directory of the CSV files from the hyperstream for quick future reference, and
 includes functions for a variety of other hyperstream summarizations. Provides various utilities for partitioning data.
+
+Encodes null integer values as -999.
 '''
 import multiprocessing
 import os
@@ -12,6 +14,8 @@ import shapely.geometry  # pip3 install shapely
 
 hyperstream_outname = "hyperstream_directory.csv"
 usa_outname = "usa_directory.csv"
+
+usa_path = os.path.join(os.curdir, "usa_gzips")
 
 threads = multiprocessing.cpu_count() - 2  # conservative. increase to taste.
 if threads < 1:
@@ -48,15 +52,15 @@ type_list = [  # values for each field
     bool,
     str,
     str,
-    np.uint64,
+    np.int64,
     str,
     str,
     str,
     str,
     str,
     bool,
-    np.uint64,
-    np.uint64,
+    np.int64,
+    np.int64,
     str,
     str
 ]
@@ -69,26 +73,28 @@ us_dtype = {"name": str, "category": str, "lat": np.float64, "long": np.float64,
 
 
 @lru_cache(maxsize=1)
-def files_from_dir(directory=os.getcwd(), suffix=".tsv"):
+def files_from_dir(directory=os.getcwd(), suffix=".tsv", just=None):
     '''
     returns all files with the given suffix in the given directory or its children.
 
     caches the most recent call and returns it if called with the same parameters.
 
     :param directory: string of directory to search.
-    :param suffix: includes only files with names that end with this string
+    :param suffix: includes only files with names that end with this string. ignored if param just is not None.
+    :just: list of basenames. only return information about these files in the given directory. Asserts all are found.
     :return: list of dictionaries with the keys 'folder', 'filename', and 'path'
     '''
     out = []
     for dirpath, dirnames, filenames in os.walk(directory):
         for f in filenames:
-            if f.endswith(suffix):
+            if f.endswith(suffix) or (just is not None and f in just):
                 out.append({
                     'folder': dirpath,
                     'filename': f,
                     'path': os.path.join(dirpath, f),
                     'updated': os.path.getmtime(os.path.join(dirpath, f))
                 })
+    if just is not None: assert len(just) == len(out)
     return out
 
 
@@ -144,18 +150,38 @@ def df(path):
         else:
             raise NotImplementedError(
                 "function df passed a file of unknown type. Files must terminate in .csv.gz or .tsv.")
-    except (pd.errors.ParserError, ValueError):
-        return repair_hyperstream_tsv(path)
+    except (pd.errors.ParserError, ValueError) as e:
+        if path.endswith(".tsv"):
+            return repair_hyperstream_tsv(path)
+        else:
+            raise NotImplementedError("parsererror / valueerror while attempting to open zipped csv. File: " +
+                                      os.path.basename(path) +
+                                      "\nerror: " + str(e) +
+                                      "\nfull path: " + path)
 
 
-def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False):
+def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
     '''
+    Generates a hyperstream directory from gzipped CSVs instead of uncompressed TSVs (what hyperstream_directory does).
+    '''
+    raise NotImplementedError
+
+
+def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False, gzips=False):
+    '''
+
+
     assumes stream name does not have the numeral "2" or the period "." (both expected in filename though).
 
-    update_file: path for the last run of this function on this data (saves time of re-calculating those cases).
-
+    :param directory: directory of the datafiles we need metadata for.
+    :param update_file: last hyperstream file
+    :param verbose:
+    :param gzips: if True, just passes params to gzip_hd and returns the result.
+    :return:
     '''
     import pandas as pd
+
+    if gzips: return gzip_hd(directory, update_file, verbose)
 
     if verbose: print("GENERATING HYPERSTREAM DIRECTORY. Looking for tsv files in " + directory)
     tsvs = files_from_dir(directory=directory, suffix=".tsv")
@@ -173,7 +199,7 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
             if verbose:
                 new += 1
                 print("New file detected (new file # " + str(new) + "). Analyzing.")
-            tsv['nrow'] = nrow(tsv['path'])
+            tsv['nrow'] = nrow(tsv['path'])  # df is opened and cached.
             tsv['ncol'] = ncol(tsv['path'])
             tsv['topic'] = tsv['filename'].split("2")[0]  # streaming dates start with 20**
             tsv['date'] = tsv['filename'][tsv['filename'].find("2"): tsv['filename'].find(".")]
@@ -191,7 +217,10 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
         print("hyperstream_directory complete. " + str(new) + \
               " new files recorded (total of " + str(i) + \
               " files recorded, including those in update_file). Converting result to dataframe to be returned.")
-    return pd.DataFrame(tsvs)
+
+    new = pd.DataFrame(tsvs)
+    if old is not None: assert old[~old.path.isin(new.path)].shape[0] == 0  # check for missing data.
+    return new
 
 
 def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state",
@@ -285,15 +314,50 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
     return pd.concat([dat, pd.DataFrame(out).astype(us_dtype)], axis=1)
 
 
-def usa_directory(directory=os.getcwd(), update_file=None, hd=None, hd_file=hyperstream_outname, verbose=0):
+def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=0):  # todo this makes no sense
+    import pandas as pd
     if verbose > 0: print("GENERATING USA DIRECTORY.")
+
+    def it(gzips):
+        for gzip in gzips:
+            gzip['nrow'] = nrow(gzip['path'])
+            gzip['ncol'] = ncol(gzip['path'])
+            gzip['topic'] = "USA"
+            gzip['date'] = gzip['filename'][gzip['filename'].find("2"): gzip['filename'].find(".")]
+
+        return pd.DataFrame(gzips)
+
     if update_file is not None:
-        raise NotImplementedError
-    else:
-        gzips = files_from_dir(suffix=".csv.gz")
-        for csv in gzips:
-            frame = df(csv)
-            raise NotImplementedError
+        if hd is None: raise NotImplementedError("usa_directory needs a hyperstream_directory to function.")
+        try:
+            old = pd.read_csv(update_file)
+        except FileNotFoundError:
+            print("USA_UPDATE FILE NOT FOUND: " + str(update_file))
+            print("RERUNNING WITHOUT UPDATE FILE. VERIFY YOU MEANT TO CALL THIS SCRIPT FROM THIS DIRECTORY.")
+            return usa_directory(directory=directory, update_file=None, hd=hd, verbose=verbose)
+        olds = [f.split(".")[0] + ".tsv" for f in old.filename]
+        potentials = hd[hd.topic == "USA"].filename
+        to_migrate = hd[hd.filename in [p for p in potentials if p not in olds]]
+        migrate_and_reformat_known_usa(directory, to_migrate)
+
+        # ok! so now we have our old usa_directory and our mixed old/new data.
+
+        all_gzips = files_from_dir(directory, suffix=".csv.gz")
+        new_gzips = [d for d in all_gzips if d['path'] not in old.path]
+        assert old[~old.path.isin([d['path'] for d in all_gzips])]  # checks that no data has gone missing.
+        return old.append(it(new_gzips), ignore_index=True)
+
+    if hd is None:
+        print("No hyperstream directory passed to usa_directory. Generating a usa_directory as best as possible.")
+        return it(files_from_dir(directory, suffix=".csv.gz"))
+
+    all_gzips = files_from_dir(directory, suffix=".csv.gz")
+
+    to_migrate = hd[(hd.topic == "USA") &
+                    (~hd.filename.isin([f['filename'].split(".")[0] + ".tsv" for f in all_gzips]))]
+    migrate_and_reformat_known_usa(directory, to_migrate)
+    new_gzips = all_gzips + files_from_dir(directory, just=[f.split(".")[0] + ".csv.gz" for f in to_migrate.filename])
+    return it(new_gzips)
 
 
 def assert_old_accurate():
@@ -378,7 +442,7 @@ def run_tests():
 #     return all([stream_types[i](l_case[i]) for i in range(len(l_case)) if l_case[i] != "null"])
 
 
-def repair_hyperstream_tsv(path, length=19, verbose=True):
+def repair_hyperstream_tsv(path, verbose=True):
     '''
     two known cases of problems:
     1.) extra tabs in the copy of location
@@ -389,9 +453,10 @@ def repair_hyperstream_tsv(path, length=19, verbose=True):
     I'm comfortable removing these data in cases where repairing could introduce inaccuracy to the data.
     '''
     import re
+    import numpy as np
     import pandas as pd
 
-    global stream_types, stream_headers
+    global stream_types, stream_headers, type_list
 
     id_exp = r"[0-9]{18}\t"  # matches with twitter ids.
 
@@ -399,9 +464,32 @@ def repair_hyperstream_tsv(path, length=19, verbose=True):
 
     bads = [0]
 
+    def dcheck(l):
+        '''
+        Types each variable in the passed tuple according to the types in type_list.
+        :param l: list passed from repaired() or None
+        :return: tuple of typed values.
+        '''
+        if l is None or len(l) != 19: return None
+        out = []
+        for i in range(len(l)):
+            try:
+                out.append(type_list[i](l[i]))
+            except ValueError:
+                if type_list[i] == np.int64 and l[i] is None or type(l[i]) == np.nan:
+                    out.append(np.int64(-999))  # encode null values as -999
+                else:
+                    try:
+                        print("Unusual error while dchecking. Excluding case: " + str(l))
+                    except ValueError or TypeError:
+                        print("Unusual error while dchecking. Case is unprintable. Excluding.")
+                    bads[0] += 1
+                    return None
+        return tuple(out)
+
     def repaired(line):
         if line.count("\t") == 18:  # good
-            return tuple(line.split("\t"))
+            return line.split("\t")
         elif len(exp.findall(line)) == 0:  # likely second line of a case 1 or 2 problem. remove it.
             bads[0] += 1
             return None
@@ -409,20 +497,20 @@ def repair_hyperstream_tsv(path, length=19, verbose=True):
             bads[0] += 1
             return None
         else:
-            try: # likely case 1 problem. replace duplicate of location with uncorrupted original.
+            try:  # likely case 1 problem. replace duplicate of location with uncorrupted original.
                 s = line.split("\t")[0:18]
                 s.append(s[11])  # duplicate location
-                return tuple(s)  # if hyperstream_type_check(s) else None
+                return s
             except IndexError:
-                return None #very rare error wherein there aren't 11 values.
+                return None
 
     with open(path, encoding="utf-8") as f:
-        df = pd.DataFrame.from_records([repaired(l) for l in f if repaired(l) != None],
-                                       columns=stream_headers).astype(stream_types)
+        df = pd.DataFrame.from_records([dcheck(repaired(l)) for l in f if dcheck(repaired(l)) != None],
+                                       columns=stream_headers)
         if verbose:
             import os
             print("# misformatted cases excluded from file " + os.path.basename(path) + ": " + str(bads[0]))
-        return df
+        return df.astype(stream_types)
 
 
 def __query_one_file__(path, directory, regex, date, username, location_type, author_id, language):  # todo untested
@@ -521,13 +609,18 @@ def random_sample(n, directory, seed=1001):  # todo untested
     return pd.concat([get(i) for i in range(len(from_each))], ignore_index=True)
 
 
+usa_mig_sum = [0]
+
+
 def usa_mig_helper(index, length, filename, path, target):
     print("Beginning migration for file: " + filename + " (" + str(index + 1) + " out of " + str(length) + ").")
     d = append_states(path)
-    d[d['us_state'] != "Unknown"].to_csv(
+    out = d[d['us_state'] != "Unknown"]
+    out.to_csv(
         os.path.join(target, filename.split(".")[0] + ".csv.gz"),
         compression="gzip", index=False)
-    print("Migration for file " + filename + " complete.")
+    print("Migration for file " + filename + " complete. Number of tweets: " + str(out.shape[0]))
+    usa_mig_sum[0] += out.shape[0]
 
 
 def migrate_and_reformat_known_usa(target, usa, multi=False):
@@ -538,6 +631,7 @@ def migrate_and_reformat_known_usa(target, usa, multi=False):
     else:
         for i in range(usa.shape[0]):
             usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target)
+    print("total number of tweets from known US states migrated: " + str(usa_mig_sum[0]))
 
 
 def usa_first_gzips():
@@ -545,9 +639,32 @@ def usa_first_gzips():
     migrate_and_reformat_known_usa("/home/dominic/shiny/hyperstream/usa_gzips", hd[hd.topic == "USA"])
 
 
-if __name__ == "__main__":
-    import pandas as pd
+def check_target(target, source_hd):  # should check to see what's already there
+    # 1.) get gzip_hd for target
+    raise NotImplementedError
 
+
+everything_mig_sum = [0]
+
+
+def migrate_everything(target):
+    import os
+    try:
+        hd = hyperstream_directory(update_file=hyperstream_outname, verbose=True)
+    except FileNotFoundError:
+        hd = hyperstream_directory(verbose=True)
+
+    to_migrate = check_target(target, hd)
+    for i in range(len(to_migrate)):
+        p = to_migrate[i]
+        print("Migrating " + os.path.basename(p) + " (" + str(i) + " out of " + str(len(to_migrate)) + ").")
+        d = df(p)
+        d.to_csv(os.path.join(target, os.path.basename(p).split(".")[0] + ".csv.gz"), compression="gzip", index=False)
+        print(os.path.basename(p) + " migration complete. Number of tweets migrated: " + str(d.shape[0]))
+        everything_mig_sum[0] += d.shape[0]
+
+
+if __name__ == "__main__":
     print("generate_directory running.")
 
     try:
