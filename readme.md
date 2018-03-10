@@ -1,6 +1,6 @@
 # Classification of Autobiographical text
 
-CAT is the first project using data collected from [hyperstream] (https://github.com/DominicBurkart/SocialNetworkAnalysis/blob/master/Applications/Hyperstream1.java).
+CAT is the first project using data collected from <a href="https://github.com/DominicBurkart/SocialNetworkAnalysis/blob/master/Applications/Hyperstream1.java" target="_blank">hyperstream</a>.
 
 ## Contents
 
