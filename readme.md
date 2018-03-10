@@ -12,10 +12,10 @@ large amounts of data in flat files.
 
 CAT is currently in progress. Below is an overview of the next steps:
 
-1. Complete `usa_directory` in `generate_directory.py`.
+1. Complete `usa_directory` in `generate_directory.py`: DONE
 2. Complete `random_sample` in `generate_directory.py`.
 3. Collect a random sample of 5,000 USA-geotagged english tweets for rating.
-Rate them, and generate the the relevant classifiers. Use cross-validation with
+Rate them, and generate the relevant classifiers. Use cross-validation with
 20% of the data (1,000 tweets). Save trained models as pickles in this repo.
 4. Augment `random_sample` to accept exclusion criteria (minimum: tweet IDs).
 5. Use `random_sample` to collect 1,000 tweets from other topic streams of
