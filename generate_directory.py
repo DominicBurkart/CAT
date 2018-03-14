@@ -15,7 +15,7 @@ import shapely.geometry  # pip3 install shapely
 hyperstream_outname = "hyperstream_directory.csv"
 usa_outname = "usa_directory.csv"
 
-usa_path = os.path.join(os.curdir, "usa_gzips")
+usa_path = os.path.abspath(os.path.join(os.curdir, "usa_gzips"))
 
 threads = multiprocessing.cpu_count() - 2  # conservative. increase to taste.
 if threads < 1:
@@ -337,15 +337,15 @@ def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=
             return usa_directory(directory=directory, update_file=None, hd=hd, verbose=verbose)
         olds = [f.split(".")[0] + ".tsv" for f in old.filename]
         potentials = hd[hd.topic == "USA"].filename
-        to_migrate = hd[hd.filename in [p for p in potentials if p not in olds]]
+        to_migrate = hd[hd.filename.isin(p for p in potentials if p not in olds)]
         migrate_and_reformat_known_usa(directory, to_migrate)
 
         # ok! so now we have our old usa_directory and our mixed old/new data.
 
         all_gzips = files_from_dir(directory, suffix=".csv.gz")
         new_gzips = [d for d in all_gzips if d['path'] not in old.path]
-        assert old[~old.path.isin([d['path'] for d in all_gzips])]  # checks that no data has gone missing.
-        return old.append(it(new_gzips), ignore_index=True)
+        assert old[~old.path.isin(d['path'] for d in all_gzips)].shape[0] == 0  # checks that no data has gone missing
+        return old.append(it(new_gzips), ignore_index=True) if new_gzips.shape[0] > 0 else old
 
     if hd is None:
         print("No hyperstream directory passed to usa_directory. Generating a usa_directory as best as possible.")
@@ -354,9 +354,10 @@ def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=
     all_gzips = files_from_dir(directory, suffix=".csv.gz")
 
     to_migrate = hd[(hd.topic == "USA") &
-                    (~hd.filename.isin([f['filename'].split(".")[0] + ".tsv" for f in all_gzips]))]
+                    ~(hd.filename.isin(f['filename'].split(".")[0] + ".tsv" for f in all_gzips))]
     migrate_and_reformat_known_usa(directory, to_migrate)
-    new_gzips = all_gzips + files_from_dir(directory, just=[f.split(".")[0] + ".csv.gz" for f in to_migrate.filename])
+    new_gzips = all_gzips + files_from_dir(directory,
+                                           just=tuple(f.split(".")[0] + ".csv.gz" for f in to_migrate.filename))
     return it(new_gzips)
 
 
@@ -470,13 +471,16 @@ def repair_hyperstream_tsv(path, verbose=True):
         :param l: list passed from repaired() or None
         :return: tuple of typed values.
         '''
-        if l is None or len(l) != 19: return None
+        if l is None: return None
+        if len(l) != 19:
+            bads[0] += 1
+            return None
         out = []
         for i in range(len(l)):
             try:
                 out.append(type_list[i](l[i]))
             except ValueError:
-                if type_list[i] == np.int64 and l[i] is None or type(l[i]) == np.nan:
+                if type_listb[i] == np.int64 and l[i] is None or type(l[i]) == np.nan:
                     out.append(np.int64(-999))  # encode null values as -999
                 else:
                     try:
