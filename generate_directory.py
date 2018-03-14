@@ -576,17 +576,17 @@ def query(tweet_regex=None, date=None, topic=None, filepaths=None,
         return many(filepaths)  # assumes iterable
 
 
-def random_sample(n, directory, seed=1001):  # todo untested
+def random_sample(directory, n, seed=1001):  # todo untested
     '''
+    :param directory: directory dataframe (with at least the same columns as hyperstream_directory)
     :param n: total number of tweets to pull.
-    :param directory: directory dataframe (with same columns as hyperstream_directory)
     :param seed: initial seed for the numpy random number generator
     :return:
     '''
     import numpy.random
     import pandas as pd
     rando = numpy.random.RandomState(seed=seed)
-    from_each = directory.nrow * n // directory.nrow.sum()  # roughly correct
+    from_each = (directory.nrow * n) // directory.nrow.sum()  # roughly correct
 
     def get(i):
         dc = directory.iloc[i]
@@ -598,13 +598,21 @@ def random_sample(n, directory, seed=1001):  # todo untested
     # modify from_each to make sure we get precisely n samples.
     deficit = n - sum(from_each)
     if deficit > 0:
-        addis = rando.random_integers(len(from_each) - 1, size=(deficit,))
+        addis = rando.randint(len(from_each) - 1, size=(deficit,))
         for i in addis:
             from_each[i] += 1
     elif deficit < 0:
-        subis = rando.random_integers(len(from_each) - 1, size=(abs(deficit),))
+        resub = 0
+        subis = rando.randint(len(from_each) - 1, size=(abs(deficit),))
         for i in subis:
-            from_each[i] -= 1
+            if from_each[i] > 0:
+                from_each[i] -= 1
+            else:
+                resub += 1
+        if resub > 0:
+            valids = [i for i in range(len(from_each)) if from_each[i] > 0]
+            for i in rando.randint(len(valids) - 1, size=(resub,)):
+                from_each[valids[i]] -= 1
 
     assert n == sum(from_each)
 
