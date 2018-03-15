@@ -1,4 +1,4 @@
-# Classification of Autobiographical text
+# Classification of Autobiographical Text
 
 CAT is the first project using data collected from <a href="https://github.com/DominicBurkart/SocialNetworkAnalysis/blob/master/Applications/Hyperstream1.java" target="_blank">hyperstream</a>.
 
@@ -6,18 +6,22 @@ CAT is the first project using data collected from <a href="https://github.com/D
 
 `generate_directory.py` is a simple script used to collate and query data output
 from `hyperstream1`, providing a light and convenient pipeline for dealing with
-large amounts of data in flat files.
+large amounts of data in flat files (either tsv or csv.gz formats).
 
-## Project overview
+`get_5000_usa.py` samples five thousand english tweets geotagged with
+known-US locations, doing so randomly within-day but weighting how many
+tweets from each day based on the total number of tweets collected.
+
+## Project Overview
 
 CAT is currently in progress. Below is an overview of the next steps:
 
 1. Complete `usa_directory` in `generate_directory.py`: DONE
-2. Complete `random_sample` in `generate_directory.py`.
+2. Complete `random_sample` in `generate_directory.py`: DONE
 3. Collect a random sample of 5,000 USA-geotagged english tweets for rating.
 Rate them, and generate the relevant classifiers. Use cross-validation with
-20% of the data (1,000 tweets). Save trained models as pickles in this repo.
-4. Augment `random_sample` to accept exclusion criteria (minimum: tweet IDs).
+20% of the data (1,000 tweets). Save trained models as pickles in this repo: IN PROGRESS
+4. Augment `random_sample` to accept exclusion criteria (minimum: tweet IDs): DONE
 5. Use `random_sample` to collect 1,000 tweets from other topic streams of
 interest. Rate them and compare classifier accuracy at different confidence
 quantiles (find correlation between classifier confidence and accuracy).

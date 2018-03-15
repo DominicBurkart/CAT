@@ -24,7 +24,7 @@ usa_outname = "usa_directory.csv"
 
 usa_path = os.path.abspath(os.path.join(os.curdir, "usa_gzips"))
 
-threads = multiprocessing.cpu_count()
+threads = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 2 else 2
 
 stream_headers = [
     "id",
@@ -552,6 +552,12 @@ def __query_one_file__(path, directory, regex, date, username, location_type, au
         return eval(all)
 
 
+def recalc_lang(text, seed=1001):
+    from langdetect import DetectorFactory, detect
+    DetectorFactory.seed = seed
+    return detect(text)
+
+
 def query(tweet_regex=None, date=None, topic=None, filepaths=None,
           username=None, location_type=None, author_id=None, language=None,
           directory=None):  # todo untested
@@ -584,18 +590,20 @@ def query(tweet_regex=None, date=None, topic=None, filepaths=None,
         return many(filepaths)  # assumes iterable
 
 
-def random_sample_helper(i, verbose, directory, from_each, rando):
+def random_sample_helper(i, verbose, directory, from_each, disclude_tweet_ids, rando):
     if verbose:
         print("Getting values from " + directory.filename.iloc[i] +
               " (file " + str(i + 1) + " of " + str(len(from_each)) + ")")
     dc = directory.iloc[i]
-    one = df(directory.path.iloc[i]).sample(n=from_each[i], random_state=rando)
+    frame = df(directory.path.iloc[i])
+    if disclude_tweet_ids is not None: frame = frame[~frame.id.isin(disclude_tweet_ids)]
+    samp = frame.sample(n=from_each[i], random_state=rando)
     for v in dc.index:
-        one[v] = dc[v]
-    return one
+        samp[v] = dc[v]
+    return samp
 
 
-def random_sample(directory, n, seed=1001, verbose=True, multi=True):
+def random_sample(directory, n, seed=1001, verbose=True, multi=True, disclude_tweet_ids=None):
     '''
 
     Samples roughly the same number of tweets from each directory listing. Slow but functional.
@@ -605,6 +613,8 @@ def random_sample(directory, n, seed=1001, verbose=True, multi=True):
     :param seed: initial seed for the numpy random number generator
     :return:
     '''
+
+    # todo implement disclude_tweet_ids
     import numpy.random
     import pandas as pd
     rando = numpy.random.RandomState(seed=seed)
@@ -628,11 +638,13 @@ def random_sample(directory, n, seed=1001, verbose=True, multi=True):
     if directory.shape[0] == 1:
         return random_sample_helper(i, verbose, directory, from_each, rando)
     if not multi:
-        return pd.concat([random_sample_helper(i, verbose, directory, from_each, rando) for i in range(len(from_each))],
+        return pd.concat([random_sample_helper(i, verbose, directory, from_each, disclude_tweet_ids, rando) for i in
+                          range(len(from_each))],
                          ignore_index=True)
     with multiprocessing.Pool(threads) as p:
         return pd.concat(
-            p.starmap(random_sample_helper, ((i, verbose, directory, from_each, rando) for i in range(len(from_each)))),
+            p.starmap(random_sample_helper,
+                      ((i, verbose, directory, from_each, disclude_tweet_ids, rando) for i in range(len(from_each)))),
             ignore_index=True)
 
 
@@ -652,7 +664,7 @@ def usa_mig_helper(index, length, filename, path, target, verbose):
 
 
 def migrate_and_reformat_known_usa(target, usa, multi=False, verbose=False):
-    if multi:  # warning: multithreading here slowed down and eventually hung.
+    if multi:  # warning: sometimes this multiprocess hangs and it's never been faster for me (Dominic March 2018).
         with multiprocessing.Pool(threads) as p:
             p.starmap(usa_mig_helper,
                       ((i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target, verbose) for i in
@@ -673,7 +685,8 @@ everything_mig_sum = [0]
 
 def check_target(target, hd):
     target_csvs = [c['filename'].split(".")[0] for c in files_from_dir(target, suffix=".csv.gz")]
-    return hd[hd.filename.str.split(".")[0] not in target_csvs].path.values
+    b = hd.filename.str.split(".").str[0]  # david this syntax is bad
+    return hd[~b.isin(target_csvs)].path.values
 
 
 def migrate_everything(target, verbose=True):

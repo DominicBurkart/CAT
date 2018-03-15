@@ -1,0 +1,4 @@
+langdetect==1.0.7
+pandas==0.22.0
+Shapely==1.6.4.post1
+pyshp==1.2.12
