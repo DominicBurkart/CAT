@@ -4,6 +4,13 @@ Generates a directory of the CSV files from the hyperstream for quick future ref
 includes functions for a variety of other hyperstream summarizations. Provides various utilities for partitioning data.
 
 Encodes null integer values as -999.
+
+If run regularly, these commands should be relatively quick – In cases where there are no new files, this script takes
+1.68 seconds to complete while scanning large directories on a hard drive.
+
+Potential site of error: if files are uploaded to the directory after hyperstream_directory has begun, they won't be
+included in that hyperstream_directory. This is a non-issue for our work, as this program a.) is not run while files
+are being written to the relevant directory and b.) is run often enough that the next
 '''
 import multiprocessing
 import os
@@ -17,9 +24,7 @@ usa_outname = "usa_directory.csv"
 
 usa_path = os.path.abspath(os.path.join(os.curdir, "usa_gzips"))
 
-threads = multiprocessing.cpu_count() - 2  # conservative. increase to taste.
-if threads < 1:
-    threads = 1
+threads = multiprocessing.cpu_count()
 
 stream_headers = [
     "id",
@@ -44,11 +49,11 @@ stream_headers = [
 ]
 
 type_list = [  # values for each field
-    str,  # really an int but they get bigger than int64s.
+    str,  # id is really an int but they get bigger than int64s.
     str,
     str,
     str,
-    np.float64,
+    np.int64,
     bool,
     str,
     str,
@@ -139,12 +144,13 @@ def shape(path):
 def df(path):
     import pandas as pd
     import os
-    global stream_headers, stream_types
 
     try:
         if path.endswith(".csv.gz") or path.endswith(".csv"):
             t = {**stream_types, **us_dtype} if os.path.basename(path).upper().startswith("USA") else stream_types
-            return pd.read_csv(path, dtype=t, compression="gzip")
+            if path.endswith(".gz"):
+                return pd.read_csv(path, dtype=t, compression="gzip")
+            return pd.read_csv(path, dtype=t)
         elif path.endswith(".tsv"):
             return pd.read_csv(path, delimiter="\t", header=None, names=stream_headers, dtype=stream_types)
         else:
@@ -191,14 +197,19 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
     else:
         old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for old_name
         if verbose: print("Old directory file loaded.")
+
+    if all(old is not None and tsv['filename'] in old.filename.values for tsv in tsvs):
+        if verbose: print("No new files since update_file was saved. Returning dataframe from update_file.")
+        return old
+
     if verbose:
         i = 0
-        new = 0
+        newi = 0
     for tsv in tsvs:
-        if old is None or tsv['updated'] > os.path.getmtime(update_file):
+        if old is None or tsv['filename'] not in old.filename.values:
+            newi += 1
             if verbose:
-                new += 1
-                print("New file detected (new file # " + str(new) + "). Analyzing.")
+                print("New file detected (new file # " + str(newi) + "). Analyzing.")
             tsv['nrow'] = nrow(tsv['path'])  # df is opened and cached.
             tsv['ncol'] = ncol(tsv['path'])
             tsv['topic'] = tsv['filename'].split("2")[0]  # streaming dates start with 20**
@@ -211,10 +222,10 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
             i += 1
             if (len(tsvs) / i) % 10 == 0:
                 print("Ratio of files checked: " + str(i / len(tsvs)))
-                print("New files recorded so far: " + str(new))
+                print("New files recorded so far: " + str(newi))
 
     if verbose:
-        print("hyperstream_directory complete. " + str(new) + \
+        print("hyperstream_directory complete. " + str(newi) + \
               " new files recorded (total of " + str(i) + \
               " files recorded, including those in update_file). Converting result to dataframe to be returned.")
 
@@ -240,7 +251,6 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
     import numpy as np
     import pandas as pd
     import shapefile  # pip3 install pyshp
-    global stream_headers, threads, us_dtype
 
     sf = shapefile.Reader(os.path.join(shapefiledir, local_shapefile))
     shapes = sf.shapes()
@@ -314,7 +324,7 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
     return pd.concat([dat, pd.DataFrame(out).astype(us_dtype)], axis=1)
 
 
-def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=0):  # todo this makes no sense
+def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=0):
     import pandas as pd
     if verbose > 0: print("GENERATING USA DIRECTORY.")
 
@@ -338,26 +348,29 @@ def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=
         olds = [f.split(".")[0] + ".tsv" for f in old.filename]
         potentials = hd[hd.topic == "USA"].filename
         to_migrate = hd[hd.filename.isin(p for p in potentials if p not in olds)]
-        migrate_and_reformat_known_usa(directory, to_migrate)
+        migrate_and_reformat_known_usa(directory, to_migrate, verbose=True if verbose > 1 else False)
 
         # ok! so now we have our old usa_directory and our mixed old/new data.
 
         all_gzips = files_from_dir(directory, suffix=".csv.gz")
-        new_gzips = [d for d in all_gzips if d['path'] not in old.path]
+        new_gzips = [d for d in all_gzips if d['path'] not in old.path.values]
         assert old[~old.path.isin(d['path'] for d in all_gzips)].shape[0] == 0  # checks that no data has gone missing
-        return old.append(it(new_gzips), ignore_index=True) if new_gzips.shape[0] > 0 else old
+        if verbose > 0: print("USA directory generated. Returning.")
+        return old.append(it(new_gzips), ignore_index=True) if len(new_gzips) > 0 else old
 
     if hd is None:
-        print("No hyperstream directory passed to usa_directory. Generating a usa_directory as best as possible.")
+        print("No hyperstream directory passed to usa_directory. Generating and returning " + \
+              "a usa_directory as best as possible.")
         return it(files_from_dir(directory, suffix=".csv.gz"))
 
     all_gzips = files_from_dir(directory, suffix=".csv.gz")
 
     to_migrate = hd[(hd.topic == "USA") &
                     ~(hd.filename.isin(f['filename'].split(".")[0] + ".tsv" for f in all_gzips))]
-    migrate_and_reformat_known_usa(directory, to_migrate)
+    migrate_and_reformat_known_usa(directory, to_migrate, verbose=True if verbose > 1 else False)
     new_gzips = all_gzips + files_from_dir(directory,
                                            just=tuple(f.split(".")[0] + ".csv.gz" for f in to_migrate.filename))
+    if verbose > 0: print("USA directory generated. Returning.")
     return it(new_gzips)
 
 
@@ -365,7 +378,6 @@ def assert_old_accurate():
     '''
     tests that hyperstream directory yields consistent results when updating vs generating directory csv.
     '''
-    global hyperstream_outname
     assert hyperstream_directory(update_file=hyperstream_outname).equals(hyperstream_directory())
     return True
 
@@ -436,7 +448,6 @@ def run_tests():
 #     :param l_case: list with same order as headers
 #     :return: bool (True if cases pass type tests)
 #     '''
-#     global stream_headers, stream_types
 #
 #     if len(l_case) != 18: return False
 #
@@ -456,8 +467,6 @@ def repair_hyperstream_tsv(path, verbose=True):
     import re
     import numpy as np
     import pandas as pd
-
-    global stream_types, stream_headers, type_list
 
     id_exp = r"[0-9]{18}\t"  # matches with twitter ids.
 
@@ -480,7 +489,7 @@ def repair_hyperstream_tsv(path, verbose=True):
             try:
                 out.append(type_list[i](l[i]))
             except ValueError:
-                if type_listb[i] == np.int64 and l[i] is None or type(l[i]) == np.nan:
+                if type_list[i] == np.int64 and l[i] is None or type(l[i]) == np.nan:
                     out.append(np.int64(-999))  # encode null values as -999
                 else:
                     try:
@@ -546,11 +555,10 @@ def __query_one_file__(path, directory, regex, date, username, location_type, au
 def query(tweet_regex=None, date=None, topic=None, filepaths=None,
           username=None, location_type=None, author_id=None, language=None,
           directory=None):  # todo untested
+    import pandas as pd
     # hyperstream_directory(update_file=hyperstream_outname)
-    global threads
 
     if directory is None:
-        global hyperstream_directory, hyperstream_outname
         directory = hyperstream_directory(update_file=hyperstream_outname)
 
     # todo add input validation
@@ -576,8 +584,22 @@ def query(tweet_regex=None, date=None, topic=None, filepaths=None,
         return many(filepaths)  # assumes iterable
 
 
-def random_sample(directory, n, seed=1001):  # todo untested
+def random_sample_helper(i, verbose, directory, from_each, rando):
+    if verbose:
+        print("Getting values from " + directory.filename.iloc[i] +
+              " (file " + str(i + 1) + " of " + str(len(from_each)) + ")")
+    dc = directory.iloc[i]
+    one = df(directory.path.iloc[i]).sample(n=from_each[i], random_state=rando)
+    for v in dc.index:
+        one[v] = dc[v]
+    return one
+
+
+def random_sample(directory, n, seed=1001, verbose=True, multi=True):
     '''
+
+    Samples roughly the same number of tweets from each directory listing. Slow but functional.
+
     :param directory: directory dataframe (with at least the same columns as hyperstream_directory)
     :param n: total number of tweets to pull.
     :param seed: initial seed for the numpy random number generator
@@ -586,80 +608,75 @@ def random_sample(directory, n, seed=1001):  # todo untested
     import numpy.random
     import pandas as pd
     rando = numpy.random.RandomState(seed=seed)
-    from_each = (directory.nrow * n) // directory.nrow.sum()  # roughly correct
-
-    def get(i):
-        dc = directory.iloc[i]
-        one = df(directory.path[i]).sample(n=from_each[i], random_state=rando)
-        for v in dc.index:
-            one[v] = dc[v]
-        return one
+    from_each = (directory.nrow.values * n) // directory.nrow.sum()
 
     # modify from_each to make sure we get precisely n samples.
     deficit = n - sum(from_each)
-    if deficit > 0:
+    if deficit > 0:  # we need more values to get to n
         addis = rando.randint(len(from_each) - 1, size=(deficit,))
         for i in addis:
             from_each[i] += 1
-    elif deficit < 0:
-        resub = 0
-        subis = rando.randint(len(from_each) - 1, size=(abs(deficit),))
+    elif deficit < 0:  # surplus.
+        valids = [i for i in range(len(from_each)) if from_each[i] > 0]
+        subis = rando.randint(valids, size=(abs(deficit),))
         for i in subis:
-            if from_each[i] > 0:
-                from_each[i] -= 1
-            else:
-                resub += 1
-        if resub > 0:
-            valids = [i for i in range(len(from_each)) if from_each[i] > 0]
-            for i in rando.randint(len(valids) - 1, size=(resub,)):
-                from_each[valids[i]] -= 1
+            from_each[valids[i]] -= 1
 
+    from_each = tuple(from_each)
     assert n == sum(from_each)
 
     if directory.shape[0] == 1:
-        return get(i)
-    return pd.concat([get(i) for i in range(len(from_each))], ignore_index=True)
+        return random_sample_helper(i, verbose, directory, from_each, rando)
+    if not multi:
+        return pd.concat([random_sample_helper(i, verbose, directory, from_each, rando) for i in range(len(from_each))],
+                         ignore_index=True)
+    with multiprocessing.Pool(threads) as p:
+        return pd.concat(
+            p.starmap(random_sample_helper, ((i, verbose, directory, from_each, rando) for i in range(len(from_each)))),
+            ignore_index=True)
 
 
 usa_mig_sum = [0]
 
 
-def usa_mig_helper(index, length, filename, path, target):
-    print("Beginning migration for file: " + filename + " (" + str(index + 1) + " out of " + str(length) + ").")
+def usa_mig_helper(index, length, filename, path, target, verbose):
+    if verbose:
+        print("Beginning migration for file: " + filename + " (" + str(index + 1) + " out of " + str(length) + ").")
     d = append_states(path)
     out = d[d['us_state'] != "Unknown"]
     out.to_csv(
         os.path.join(target, filename.split(".")[0] + ".csv.gz"),
         compression="gzip", index=False)
-    print("Migration for file " + filename + " complete. Number of tweets: " + str(out.shape[0]))
+    if verbose: print("Migration for file " + filename + " complete. Number of tweets: " + str(out.shape[0]))
     usa_mig_sum[0] += out.shape[0]
 
 
-def migrate_and_reformat_known_usa(target, usa, multi=False):
+def migrate_and_reformat_known_usa(target, usa, multi=False, verbose=False):
     if multi:  # warning: multithreading here slowed down and eventually hung.
         with multiprocessing.Pool(threads) as p:
             p.starmap(usa_mig_helper,
-                      [[i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target] for i in range(usa.shape[0])])
+                      ((i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target, verbose) for i in
+                       range(usa.shape[0])))
     else:
         for i in range(usa.shape[0]):
-            usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target)
-    print("total number of tweets from known US states migrated: " + str(usa_mig_sum[0]))
+            usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target, verbose)
+    if verbose: print("total number of tweets from known US states migrated: " + str(usa_mig_sum[0]))
 
 
 def usa_first_gzips():
     hd = hyperstream_directory(update_file=hyperstream_outname)
-    migrate_and_reformat_known_usa("/home/dominic/shiny/hyperstream/usa_gzips", hd[hd.topic == "USA"])
-
-
-def check_target(target, source_hd):  # should check to see what's already there
-    # 1.) get gzip_hd for target
-    raise NotImplementedError
+    migrate_and_reformat_known_usa("/home/dominic/shiny/hyperstream/usa_gzips", hd[hd.topic == "USA"], verbose=True)
 
 
 everything_mig_sum = [0]
 
 
-def migrate_everything(target):
+def check_target(target, hd):
+    target_csvs = [c['filename'].split(".")[0] for c in files_from_dir(target, suffix=".csv.gz")]
+    return hd[hd.filename.str.split(".")[0] not in target_csvs].path.values
+
+
+def migrate_everything(target, verbose=True):
     import os
     try:
         hd = hyperstream_directory(update_file=hyperstream_outname, verbose=True)
@@ -669,11 +686,14 @@ def migrate_everything(target):
     to_migrate = check_target(target, hd)
     for i in range(len(to_migrate)):
         p = to_migrate[i]
-        print("Migrating " + os.path.basename(p) + " (" + str(i) + " out of " + str(len(to_migrate)) + ").")
+        if verbose: print("Migrating " + os.path.basename(p) + " (" + str(i) + " out of " + str(len(to_migrate)) + ").")
         d = df(p)
         d.to_csv(os.path.join(target, os.path.basename(p).split(".")[0] + ".csv.gz"), compression="gzip", index=False)
-        print(os.path.basename(p) + " migration complete. Number of tweets migrated: " + str(d.shape[0]))
-        everything_mig_sum[0] += d.shape[0]
+        if verbose:
+            print(os.path.basename(p) + " migration complete. Number of tweets migrated: " + str(d.shape[0]))
+            everything_mig_sum[0] += d.shape[0]
+    if verbose:
+        print("Migration complete. Total tweets migrated: " + str(everything_mig_sum[0]))
 
 
 if __name__ == "__main__":
