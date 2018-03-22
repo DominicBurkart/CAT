@@ -33,7 +33,7 @@ def r(n, collected=None, m=2, exclude=None):
         # bad recursive algorithm, but comparatively trivial since sampling takes so long
 
     if goods.shape[0] > collect_int:
-        return goods.sample(collect_int, seed=1001)
+        return goods.sample(collect_int, random_state=1001)
     elif goods.shape[0] == collect_int:
         return goods
     else:  # (goods.shape[0] < collect_int)

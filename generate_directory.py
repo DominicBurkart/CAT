@@ -16,7 +16,9 @@ import multiprocessing
 import os
 from functools import lru_cache
 
+import langdetect  # pip3 install langdetect
 import numpy as np
+import shapefile  # pip3 install pyshp
 import shapely.geometry  # pip3 install shapely
 
 hyperstream_outname = "hyperstream_directory.csv"
@@ -234,6 +236,35 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
     return new
 
 
+def unpack_location(geostr):
+    try:
+        name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
+    except ValueError:
+        name, category, lat, long = np.nan, np.nan, np.nan, np.nan
+        return name, category, lat, long
+    try:
+        lat, long = np.float64(lat), np.float64(long)
+    except ValueError:
+        lat, long = 0., 0.
+
+    return name, category, lat, long
+
+
+def apply_and_concat(dataframe, field, func, column_names):
+    '''
+    from Dennis Golomazov at https://stackoverflow.com/questions/23690284/
+    pandas-apply-function-that-returns-multiple-values-to-rows-in-pandas-dataframe
+    '''
+    import pandas as pd
+    return pd.concat((
+        dataframe,
+        dataframe[field].apply(lambda cell: pd.Series(func(cell), index=column_names))), axis=1)
+
+
+def unpack_location_df(df):
+    return apply_and_concat(df, 'location', unpack_location, column_names=['location_name', 'category', 'lat', 'long'])
+
+
 def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state",
                   verbose=0):
     '''
@@ -250,7 +281,6 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
     '''
     import numpy as np
     import pandas as pd
-    import shapefile  # pip3 install pyshp
 
     sf = shapefile.Reader(os.path.join(shapefiledir, local_shapefile))
     shapes = sf.shapes()
@@ -553,9 +583,11 @@ def __query_one_file__(path, directory, regex, date, username, location_type, au
 
 
 def recalc_lang(text, seed=1001):
-    from langdetect import DetectorFactory, detect
-    DetectorFactory.seed = seed
-    return detect(text)
+    langdetect.DetectorFactory.seed = seed
+    try:
+        return langdetect.detect(text)
+    except langdetect.lang_detect_exception.LangDetectException:
+        return "und"
 
 
 def query(tweet_regex=None, date=None, topic=None, filepaths=None,
