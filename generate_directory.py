@@ -80,7 +80,7 @@ us_dtype = {"name": str, "category": str, "lat": np.float64, "long": np.float64,
 
 
 @lru_cache(maxsize=1)
-def files_from_dir(directory=os.getcwd(), suffix=".tsv", just=None):
+def files_from_dir(directory=os.getcwd(), suffix=None, just=None):
     '''
     returns all files with the given suffix in the given directory or its children.
 
@@ -88,7 +88,7 @@ def files_from_dir(directory=os.getcwd(), suffix=".tsv", just=None):
 
     :param directory: string of directory to search.
     :param suffix: includes only files with names that end with this string. ignored if param just is not None.
-    :just: list of basenames. only return information about these files in the given directory. Asserts all are found.
+    :param just: list of basenames. only return information about these files in the given directory. Asserts all are found.
     :return: list of dictionaries with the keys 'folder', 'filename', and 'path'
     '''
     out = []
@@ -183,7 +183,7 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
     '''
 
 
-    assumes stream name does not have the numeral "2" or the period "." (both expected in filename though).
+    Assumes stream name does not have the digit "2" or the period "." (both expected in filename though).
 
     :param directory: directory of the datafiles we need metadata for.
     :param update_file: last hyperstream file
@@ -280,6 +280,8 @@ def locations_from_bounds(frame, bound_names, bound_vals):
     '''
     from shapely.geometry.point import Point
 
+    assert len(bound_names) == len(bound_vals)
+
     def split_vals(i, length=4):
         if type(bound_vals[i]) != str:
             if len(bound_vals[i]) == length:
@@ -303,15 +305,13 @@ def locations_from_bounds(frame, bound_names, bound_vals):
             else:
                 yield "Unknown"
 
-    assert len(bound_names) == len(bound_vals)
-
     boxes = []
     for i in range(len(bound_vals)):
         boxes.append(
             shapely.geometry.box(*[np.float64(v) for v in split_vals(i)]))  # breaks if bound_vals is misformatted.
 
     unpacked = unpack_location_df(frame)
-    return unpacked.assign(bound_name=list(locate(zip(unpacked.lat.values, unpacked.long.values))))
+    return unpacked.assign(bound_name=list(locate(zip(unpacked.long.values, unpacked.lat.values))))
 
 
 def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state",
@@ -481,7 +481,7 @@ def assert_consistent_line_length(verbose=True, stop_after=None, writeout=True, 
     '''
     tests that every line of every tsv has the same number of tabs.
     '''
-    tsvs = files_from_dir()
+    tsvs = files_from_dir(suffix=".tsv")
     prev = None
     if writeout: inconsistencies = open(outname, "w", encoding="utf-8")
     good = True
