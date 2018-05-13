@@ -26,7 +26,7 @@ usa_outname = "usa_directory.csv"
 
 usa_path = os.path.abspath(os.path.join(os.curdir, "usa_gzips"))
 
-threads = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 2 else 2
+threads = max([multiprocessing.cpu_count() - 1, 2])
 
 stream_headers = [
     "id",
@@ -175,6 +175,10 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
     raise NotImplementedError
 
 
+def hd():
+    return hyperstream_directory(update_file=hyperstream_outname)
+
+
 def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False, gzips=False):
     '''
 
@@ -200,7 +204,7 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
         old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for old_name
         if verbose: print("Old directory file loaded.")
 
-    if all(old is not None and tsv['filename'] in old.filename.values for tsv in tsvs):
+    if old is not None and all(tsv['filename'] in old.filename.values for tsv in tsvs):
         if verbose: print("No new files since update_file was saved. Returning dataframe from update_file.")
         return old
 
@@ -240,12 +244,12 @@ def unpack_location(geostr):
     try:
         name, category, lat, long = geostr.split("   ")  # three spaces. vals: name, type (e.g. urban or poi), lat, long
     except ValueError:
-        name, category, lat, long = np.nan, np.nan, np.nan, np.nan
+        name, category, lat, long = "Unknown", "Unknown", np.nan, np.nan
         return name, category, lat, long
     try:
         lat, long = np.float64(lat), np.float64(long)
     except ValueError:
-        lat, long = 0., 0.
+        lat, long = np.nan, np.nan
 
     return name, category, lat, long
 
@@ -263,6 +267,51 @@ def apply_and_concat(dataframe, field, func, column_names):
 
 def unpack_location_df(df):
     return apply_and_concat(df, 'location', unpack_location, column_names=['location_name', 'category', 'lat', 'long'])
+
+
+def locations_from_bounds(frame, bound_names, bound_vals):
+    '''
+    Selects the first matching bounding box for each case.
+
+    :param frame:
+    :param bound_names:
+    :param bound_vals:
+    :return:
+    '''
+    from shapely.geometry.point import Point
+
+    def split_vals(i, length=4):
+        if type(bound_vals[i]) != str:
+            if len(bound_vals[i]) == length:
+                return bound_vals[i]
+        if bound_vals[i].startswith("(") and bound_vals[i].endswith(")"):
+            return bound_vals[i][1: -1].split(",")
+        else:
+            return bound_vals[i].split(",")
+
+    def locate(points):
+        for tup in points:
+            if any(v is np.nan or type(v) not in [np.float64, float] for v in tup):
+                yield "Unknown"
+                continue
+
+            point = Point(*tup)
+            for i in range(len(boxes)):
+                if boxes[i].contains(point):
+                    yield bound_names[i]
+                    break
+            else:
+                yield "Unknown"
+
+    assert len(bound_names) == len(bound_vals)
+
+    boxes = []
+    for i in range(len(bound_vals)):
+        boxes.append(
+            shapely.geometry.box(*[np.float64(v) for v in split_vals(i)]))  # breaks if bound_vals is misformatted.
+
+    unpacked = unpack_location_df(frame)
+    return unpacked.assign(bound_name=list(locate(zip(unpacked.lat.values, unpacked.long.values))))
 
 
 def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state",
@@ -469,19 +518,6 @@ def run_tests():
     assert_consistent_colnum()
     assert_consistent_line_length()  # fails. a more interesting test would be to see if the repair function works.
     return True
-
-
-# todo test this
-# def hyperstream_type_check(l_case):
-#     '''
-#
-#     :param l_case: list with same order as headers
-#     :return: bool (True if cases pass type tests)
-#     '''
-#
-#     if len(l_case) != 18: return False
-#
-#     return all([stream_types[i](l_case[i]) for i in range(len(l_case)) if l_case[i] != "null"])
 
 
 def repair_hyperstream_tsv(path, verbose=True):
