@@ -1,6 +1,7 @@
 import re
 
 import nltk
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
 from sklearn.naive_bayes import MultinomialNB
@@ -101,7 +102,7 @@ def hypt(accuracy, iv, dv, perms=10000, show_graph=True, name="hyptest", print_p
 
 def five_fold(iv, dv, name=None, show_feat=False, hyp_test=True, show_graph=False, write_out=True):
     '''
-    Leave five-fold cross-validated classification.
+    Five-fold cross-validated classification.
     :param iv:
     :param dv:
     :param name:
