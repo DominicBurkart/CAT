@@ -311,7 +311,7 @@ def locations_from_bounds(frame, bound_names, bound_vals):
             shapely.geometry.box(*[np.float64(v) for v in split_vals(i)]))  # breaks if bound_vals is misformatted.
 
     unpacked = unpack_location_df(frame)
-    return unpacked.assign(bound_name=list(locate(zip(unpacked.long.values, unpacked.lat.values))))
+    return unpacked.assign(bound_name=list(locate(zip(unpacked.lat.values, unpacked.long.values))))
 
 
 def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state"), local_shapefile="tl_2017_us_state",
