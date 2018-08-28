@@ -10,7 +10,7 @@ If run regularly, these commands should be relatively quick – In cases where t
 
 Potential site of error: if files are uploaded to the directory after hyperstream_directory has begun, they won't be
 included in that hyperstream_directory. This is a non-issue for our work, as this program a.) is not run while files
-are being written to the relevant directory and b.) is run often enough that the next
+are being written to the relevant directory and b.) is run often enough that the next time will catch it.
 '''
 import multiprocessing
 import os
@@ -80,7 +80,7 @@ us_dtype = {"name": str, "category": str, "lat": np.float64, "long": np.float64,
 
 
 @lru_cache(maxsize=1)
-def files_from_dir(directory=os.getcwd(), suffix=None, just=None):
+def files_from_dir(directory=os.getcwd(), suffix=".tsv", just=None):
     '''
     returns all files with the given suffix in the given directory or its children.
 
@@ -88,7 +88,7 @@ def files_from_dir(directory=os.getcwd(), suffix=None, just=None):
 
     :param directory: string of directory to search.
     :param suffix: includes only files with names that end with this string. ignored if param just is not None.
-    :param just: list of basenames. only return information about these files in the given directory. Asserts all are found.
+    :just: list of basenames. only return information about these files in the given directory. Asserts all are found.
     :return: list of dictionaries with the keys 'folder', 'filename', and 'path'
     '''
     out = []
@@ -183,7 +183,7 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
     '''
 
 
-    Assumes stream name does not have the digit "2" or the period "." (both expected in filename though).
+    assumes stream name does not have the numeral "2" or the period "." (both expected in filename though).
 
     :param directory: directory of the datafiles we need metadata for.
     :param update_file: last hyperstream file
@@ -213,13 +213,19 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
         newi = 0
     for tsv in tsvs:
         if old is None or tsv['filename'] not in old.filename.values:
-            newi += 1
             if verbose:
-                print("New file detected (new file # " + str(newi) + "). Analyzing.")
-            tsv['nrow'] = nrow(tsv['path'])  # df is opened and cached.
-            tsv['ncol'] = ncol(tsv['path'])
-            tsv['topic'] = tsv['filename'].split("2")[0]  # streaming dates start with 20**
-            tsv['date'] = tsv['filename'][tsv['filename'].find("2"): tsv['filename'].find(".")]
+                print("New file detected (new file # " + str(newi + 1) + "). Analyzing.")
+            try:
+                tsv['nrow'] = nrow(tsv['path'])  # df is opened and cached.
+                tsv['ncol'] = ncol(tsv['path'])
+                tsv['topic'] = tsv['filename'].split("2")[0]  # streaming dates start with 20**
+                tsv['date'] = tsv['filename'][tsv['filename'].find("2"): tsv['filename'].find(".")]
+                newi += 1
+            except (ValueError, MemoryError): # df changed while being opened.
+                if verbose:
+                    print("Excluding file as it was changed while reading: " + str(tsv['path']) +
+                          "\nre-decrementing new file index. File will be processed if it is no longer changing when " +
+                          "the program is next run.")
         else:
             case = old[old.path == tsv['path']].iloc[0].to_dict()
             for k in case.keys():
@@ -280,8 +286,6 @@ def locations_from_bounds(frame, bound_names, bound_vals):
     '''
     from shapely.geometry.point import Point
 
-    assert len(bound_names) == len(bound_vals)
-
     def split_vals(i, length=4):
         if type(bound_vals[i]) != str:
             if len(bound_vals[i]) == length:
@@ -304,6 +308,8 @@ def locations_from_bounds(frame, bound_names, bound_vals):
                     break
             else:
                 yield "Unknown"
+
+    assert len(bound_names) == len(bound_vals)
 
     boxes = []
     for i in range(len(bound_vals)):
@@ -481,7 +487,7 @@ def assert_consistent_line_length(verbose=True, stop_after=None, writeout=True, 
     '''
     tests that every line of every tsv has the same number of tabs.
     '''
-    tsvs = files_from_dir(suffix=".tsv")
+    tsvs = files_from_dir()
     prev = None
     if writeout: inconsistencies = open(outname, "w", encoding="utf-8")
     good = True
@@ -793,3 +799,4 @@ if __name__ == "__main__":
         print("Invalid update_file passed. Rerunning without update_file.")
         ud = usa_directory(hd=hd, verbose=1)
     ud.to_csv(usa_outname, index=False)
+
