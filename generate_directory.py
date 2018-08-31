@@ -415,10 +415,17 @@ def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=
 
     def it(gzips):
         for gzip in gzips:
-            gzip['nrow'] = nrow(gzip['path'])
-            gzip['ncol'] = ncol(gzip['path'])
-            gzip['topic'] = "USA"
-            gzip['date'] = gzip['filename'][gzip['filename'].find("2"): gzip['filename'].find(".")]
+            try:
+                gzip['nrow'] = nrow(gzip['path'])
+                gzip['ncol'] = ncol(gzip['path'])
+                gzip['topic'] = "USA"
+                gzip['date'] = gzip['filename'][gzip['filename'].find("2"): gzip['filename'].find(".")]
+            except (ValueError, MemoryError): # df changed while being opened.
+                if verbose > 0:
+                    print("Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
+                          str(tsv['path']) +
+                          "\nThis program will attempt to process the file " +
+                          "the next time it is run.")
 
         return pd.DataFrame(gzips)
 
