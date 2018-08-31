@@ -223,9 +223,10 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
                 newi += 1
             except (ValueError, MemoryError): # df changed while being opened.
                 if verbose:
-                    print("Excluding file as it was changed while reading: " + str(tsv['path']) +
-                          "\nre-decrementing new file index. File will be processed if it is no longer changing when " +
-                          "the program is next run.")
+                    print("Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
+                          str(tsv['path']) +
+                          "\nDecrementing new file #. This program will attempt to process the file " +
+                          "the next time it is run.")
         else:
             case = old[old.path == tsv['path']].iloc[0].to_dict()
             for k in case.keys():
