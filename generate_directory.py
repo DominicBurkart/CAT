@@ -753,7 +753,14 @@ def migrate_and_reformat_known_usa(target, usa, multi=False, verbose=False):
                        range(usa.shape[0])))
     else:
         for i in range(usa.shape[0]):
-            usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target, verbose)
+            try:
+                usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target, verbose)
+            except MemoryError:
+                try:
+                    usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target, verbose)
+                except MemoryError:
+                    if verbose:
+                        print("Excluding "+usa.filename.iloc[i]+" due to MemoryError.")
     if verbose: print("total number of tweets from known US states migrated: " + str(usa_mig_sum[0]))
 
 
