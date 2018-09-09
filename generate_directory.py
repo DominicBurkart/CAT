@@ -685,7 +685,7 @@ def random_sample_helper(i, verbose, directory, from_each, disclude_tweet_ids, r
     return samp
 
 
-def random_sample(directory, n, seed=1001, verbose=True, multi=True, disclude_tweet_ids=None):
+def random_sample(directory, n, seed=1001, verbose=True, multi=False, disclude_tweet_ids=None):
     '''
 
     Samples roughly the same number of tweets from each directory listing. Slow but functional.
