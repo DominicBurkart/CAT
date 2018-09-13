@@ -41,15 +41,15 @@ def getFeatureSet(twoples):
     return out  # we have our feature set! send it out.
 
 
-def hypt(accuracy, iv, dv, perms=50000, show_graph=True, name="hyptest", print_progress=True,
+def hypt(accuracy, label, text, perms=50000, show_graph=True, name="hyptest", print_progress=True,
          multiprocess=True, save_perm_accuracies=True):
     '''
     Tests whether classifiers are performing significantly better than chance.
     Permutation-based hypothesis testing based on removing the correspondence between the IV and the DV via
     randomization to generate a null distribution.
     :param accuracy:
-    :param iv:
-    :param dv:
+    :param label:
+    :param text:
     :param perms:
     :param show_graph:
     :param plot_name:
@@ -69,11 +69,11 @@ def hypt(accuracy, iv, dv, perms=50000, show_graph=True, name="hyptest", print_p
             out_dicts = []
             resps = []
             for i in range(perms):
-                civ = copy.deepcopy(iv)
+                civ = copy.deepcopy(label)
                 np.random.shuffle(civ)
                 resps.append(
                     pool.apply_async(five_fold,
-                                     args=(civ, dv),
+                                     args=(civ, text),
                                      kwds=async_kwargs,
                                      callback=out_dicts.append))
             for r in resps:
@@ -81,9 +81,9 @@ def hypt(accuracy, iv, dv, perms=50000, show_graph=True, name="hyptest", print_p
             null_accuracy = [d['accuracy'] for d in out_dicts]
     else:
         for i in range(perms):
-            civ = copy.deepcopy(iv)
+            civ = copy.deepcopy(label)
             np.random.shuffle(civ)
-            null_accuracy.append(five_fold(civ, dv, show_graph=False, hyp_test=False, write_out=False)['accuracy'])
+            null_accuracy.append(five_fold(civ, text, show_graph=False, hyp_test=False, write_out=False)['accuracy'])
             if print_progress:
                 print("Permutation test iteration #: " + str(i + 1))
                 print("Percent complete: " + str(((i + 1) / perms) * 100) + "%")
@@ -102,7 +102,7 @@ def hypt(accuracy, iv, dv, perms=50000, show_graph=True, name="hyptest", print_p
     return len(g) / len(null_accuracy)  # probability of null hypothesis
 
 
-def five_fold(iv, dv, name=None, show_feat=False, hyp_test=True, show_graph=False, write_out=True):
+def five_fold(label, text, name=None, show_feat=False, hyp_test=True, show_graph=False, write_out=True):
     '''
     Five-fold cross-validated classification.
     :param iv:
@@ -114,7 +114,7 @@ def five_fold(iv, dv, name=None, show_feat=False, hyp_test=True, show_graph=Fals
     :param write_out:
     :return:
     '''
-    full = list(zip(iv, dv))
+    full = list(zip(label, text))
     v = []  # filled with the average accuracies on left-out data across models. doesn't wait for differences in splits.
 
     for traini, testi in KFold(n_splits=5).split(full):
@@ -128,10 +128,10 @@ def five_fold(iv, dv, name=None, show_feat=False, hyp_test=True, show_graph=Fals
     a = np.mean(v)
     if hyp_test:
         if name is None:
-            out = {"accuracy": a, "null probability": hypt(a, iv, dv, show_graph=show_graph)}
+            out = {"accuracy": a, "null probability": hypt(a, label, text, show_graph=show_graph)}
         else:
             out = {"accuracy": a,
-                   "null probability": hypt(a, iv, dv, name=name, show_graph=show_graph),
+                   "null probability": hypt(a, label, text, name=name, show_graph=show_graph),
                    "name": name}
     else:
         if name is None:
