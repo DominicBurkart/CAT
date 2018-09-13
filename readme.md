@@ -2,6 +2,15 @@
 
 CAT is the first project using data collected from <a href="https://github.com/DominicBurkart/SocialNetworkAnalysis/blob/master/Applications/Hyperstream1.java" target="_blank">hyperstream</a>.
 
+Autobiographical text is defined as such in this project:
+1. The text discloses emotions or inner thoughts.
+2. The emotions or thoughts are not projected onto their source/target.
+For example, "Fred made me sad" is autobiographical while "Fred is mean"
+is not.
+3. As implied by (2), emotions or thoughts are presented in the
+first person. They belong to the author or a group the author is a part
+of ("Me" or "Us").
+
 ## Contents
 
 `generate_directory.py` allows collation and queries to the data collected
