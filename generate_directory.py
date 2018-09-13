@@ -799,6 +799,10 @@ def migrate_everything(target, verbose=True):
         print("Migration complete. Total tweets migrated: " + str(everything_mig_sum[0]))
 
 
+def df_iter(hd):
+    for p in hd.path.values:
+        yield df(p)
+
 if __name__ == "__main__":
     print("generate_directory running.")
 
