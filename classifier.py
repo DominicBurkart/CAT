@@ -1,6 +1,7 @@
 import re
 import pickle
 import os
+import time
 
 import nltk
 import numpy as np
@@ -161,8 +162,18 @@ def save_nb(label, text, name="5000_naive_bayes.pickle"):
     model = nltk.classify.scikitlearn.SklearnClassifier(MultinomialNB()).train(train)
     return o(model, name)
 
+
 def parse_for_fasttext(datafile):
-    raise NotImplementedError
+    df = pd.read_csv(datafile)
+    outname = "temporary_parse_for_fasttext"+str(time.time())
+    with open(outname) as out:
+        for label, text in zip(df.autobiographical, df.message):
+            if label == "0":
+                out.write("__label__nonautobiographical__ " + text+"\n")
+            else:
+                out.write("__label__autobiographical__ " + text+"\n")
+    return outname
+
 
 def fasttext_five_fold(datafile):
     file = parse_for_fasttext(datafile)
@@ -175,7 +186,7 @@ def fasttext_five_fold(datafile):
                 test.writelines([lines[i] for i in testi])
             m = fasttext.supervised("train.txt", "fasttext_five_fold")
             results.append(m.test("test.txt").precision)
-    for f in ["test.txt", "test.txt", "fasttext_five_fold.bin", "fasttext_five_fold.vec"]:
+    for f in [file, "test.txt", "test.txt", "fasttext_five_fold.bin", "fasttext_five_fold.vec"]:
         os.remove(f)
     return results
 
@@ -186,6 +197,7 @@ def fasttext_perm_test(datafile):
     :return: float. probability that the real precision of the classification model is greater than chance.
     '''
     df = pd.read_csv(datafile)
+    out = dict()
     null_precision = []
     for i in range(10000):
         df.autobiographical = np.random.shuffle(df.autobiographical)
@@ -195,24 +207,30 @@ def fasttext_perm_test(datafile):
 
     real_precision = fasttext_five_fold(datafile)
     real_avg = np.mean(real_precision)
-    return float(len([v for v in null_precision if v > real_avg])) / len(null_precision)
+    out['null probability'] = float(len([v for v in null_precision if v > real_avg])) / len(null_precision)
+    out['accuracy'] = real_avg
+    out['name'] = "fasttext on "+str(datafile)
 
 
 def save_fasttext(datafile, name="5000_fasttext"):
-
     f = parse_for_fasttext(datafile)
     fasttext.skipgram(f, name)
     os.remove(f)
 
+
 def save_rcnn(label, text, name="5000_rcnn.pickle"):
     raise NotImplementedError
+
 
 if __name__ == "__main__":
     df = pd.read_csv(data_file)
 
-    print(five_fold(df.autobiographical, df.message, "cat_usa_fivefold"))
-    print("Fasttext permutation accuracy: ", str(fasttext_perm_test(data_file)))
-    # todo: do CV on rcnn model.
+    models = [
+        five_fold(df.autobiographical, df.message, "cat_usa_fivefold"),
+        fasttext_perm_test(data_file)
+        # todo: do CV on rcnn model.
+    ]
+    pd.DataFrame.from_dict(models).to_csv("cat_classifier_accuracies.csv", index=False)
     save_nb(df.autobiographical, df.message)
     save_fasttext(data_file)
     save_rcnn(df.autobiographical, df.message)
