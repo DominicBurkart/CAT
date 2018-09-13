@@ -3,6 +3,7 @@ import re
 import nltk
 import numpy as np
 import pandas as pd
+import fasttext
 from sklearn.model_selection import KFold
 from sklearn.naive_bayes import MultinomialNB
 
