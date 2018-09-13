@@ -1,5 +1,6 @@
 import re
 import pickle
+import os
 
 import nltk
 import numpy as np
@@ -155,18 +156,28 @@ def o(value, outname):
             f_out.write(bytes_out[idx:idx + max_bytes])
     return True
 
-def save_nb(iv, dv, name="5000_naive_bayes.pickle"):
-    train = list(zip(iv, dv))
+def save_nb(label, text, name="5000_naive_bayes.pickle"):
+    train = getFeatureSet(list(zip(label, text)))
     model = nltk.classify.scikitlearn.SklearnClassifier(MultinomialNB()).train(train)
     return o(model, name)
+
+def save_fasttext(datafile, name="5000_fasttext"):
+    def parse_for_fasttext(datafile):
+        raise NotImplementedError
+
+    f = parse_for_fasttext(datafile)
+    fasttext.skipgram(f, name)
+    os.remove(f)
+
+def save_rcnn(label, text, name="5000_rcnn.pickle"):
+    raise NotImplementedError
 
 if __name__ == "__main__":
     df = pd.read_csv(data_file)
 
-    if use_sbatch:
-        import sbatch
+    print(five_fold(df.autobiographical, df.message, "cat_usa_fivefold"))
+    # todo
+    save_nb(df.autobiographical, df.message)
+    save_fasttext(data_file)
+    save_rcnn(df.autobiographical, df.message)
 
-        sbatch.load("five_fold", [df.text, df.aut, "cat_usa_fivefold"])
-        sbatch.launch()
-    else:
-        print(five_fold(df.text, df.aut, "cat_usa_fivefold"))
