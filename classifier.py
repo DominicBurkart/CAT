@@ -41,7 +41,7 @@ def getFeatureSet(twoples):
     return out  # we have our feature set! send it out.
 
 
-def hypt(accuracy, iv, dv, perms=10000, show_graph=True, name="hyptest", print_progress=True,
+def hypt(accuracy, iv, dv, perms=50000, show_graph=True, name="hyptest", print_progress=True,
          multiprocess=True, save_perm_accuracies=True):
     '''
     Tests whether classifiers are performing significantly better than chance.
