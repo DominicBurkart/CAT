@@ -161,9 +161,44 @@ def save_nb(label, text, name="5000_naive_bayes.pickle"):
     model = nltk.classify.scikitlearn.SklearnClassifier(MultinomialNB()).train(train)
     return o(model, name)
 
+def parse_for_fasttext(datafile):
+    raise NotImplementedError
+
+def fasttext_five_fold(datafile):
+    file = parse_for_fasttext(datafile)
+    results = []
+    with open(file).readlines() as lines:
+        for traini, testi in KFold(n_splits=5).split(lines):
+            with open("train.txt", "w") as train:
+                train.writelines([lines[i] for i in traini])
+            with open("test.txt", "w") as test:
+                test.writelines([lines[i] for i in testi])
+            m = fasttext.supervised("train.txt", "fasttext_five_fold")
+            results.append(m.test("test.txt").precision)
+    for f in ["test.txt", "test.txt", "fasttext_five_fold.bin", "fasttext_five_fold.vec"]:
+        os.remove(f)
+    return results
+
+
+def fasttext_perm_test(datafile):
+    '''
+    :param datafile:
+    :return: float. probability that the real precision of the classification model is greater than chance.
+    '''
+    df = pd.read_csv(datafile)
+    null_precision = []
+    for i in range(10000):
+        df.autobiographical = np.random.shuffle(df.autobiographical)
+        df.to_csv("disordered.csv", index=False)
+        null_precision.append(fasttext_five_fold("disordered.csv"))
+    os.remove("disordered.csv")
+
+    real_precision = fasttext_five_fold(datafile)
+    real_avg = np.mean(real_precision)
+    return float(len([v for v in null_precision if v > real_avg])) / len(null_precision)
+
+
 def save_fasttext(datafile, name="5000_fasttext"):
-    def parse_for_fasttext(datafile):
-        raise NotImplementedError
 
     f = parse_for_fasttext(datafile)
     fasttext.skipgram(f, name)
@@ -176,7 +211,8 @@ if __name__ == "__main__":
     df = pd.read_csv(data_file)
 
     print(five_fold(df.autobiographical, df.message, "cat_usa_fivefold"))
-    # todo
+    print("Fasttext permutation accuracy: ", str(fasttext_perm_test(data_file)))
+    # todo: do CV on rcnn model.
     save_nb(df.autobiographical, df.message)
     save_fasttext(data_file)
     save_rcnn(df.autobiographical, df.message)
