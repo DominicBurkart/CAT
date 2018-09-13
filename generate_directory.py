@@ -220,7 +220,8 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
                 tsv['ncol'] = ncol(tsv['path'])
                 tsv['topic'] = tsv['filename'].split("2")[0]  # streaming dates start with 20**
                 tsv['date'] = tsv['filename'][tsv['filename'].find("2"): tsv['filename'].find(".")]
-                newi += 1
+                if verbose:
+                    newi += 1
             except (ValueError, MemoryError): # df changed while being opened.
                 if verbose:
                     print("Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
@@ -530,7 +531,7 @@ def assert_consistent_line_length(verbose=True, stop_after=None, writeout=True, 
 def run_tests():
     assert_old_accurate()
     assert_consistent_colnum()
-    assert_consistent_line_length()  # fails. a more interesting test would be to see if the repair function works.
+    assert_consistent_line_length()  # fails. a more useful test would be to see if the repair function works.
     return True
 
 
