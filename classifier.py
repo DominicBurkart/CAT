@@ -1,4 +1,5 @@
 import re
+import pickle
 
 import nltk
 import numpy as np
@@ -145,6 +146,19 @@ def five_fold(iv, dv, name=None, show_feat=False, hyp_test=True, show_graph=Fals
             pd.DataFrame([out]).to_csv(name + ".csv")
     return out
 
+def o(value, outname):
+    n_bytes = 2 ** 31  # the pickle package is slightly broken in python 3.4 and requires these params for saving large files.
+    max_bytes = 2 ** 31 - 1
+    bytes_out = pickle.dumps(value)
+    with open(outname, 'wb') as f_out:
+        for idx in range(0, n_bytes, max_bytes):
+            f_out.write(bytes_out[idx:idx + max_bytes])
+    return True
+
+def save_nb(iv, dv, name="5000_naive_bayes.pickle"):
+    train = list(zip(iv, dv))
+    model = nltk.classify.scikitlearn.SklearnClassifier(MultinomialNB()).train(train)
+    return o(model, name)
 
 if __name__ == "__main__":
     df = pd.read_csv(data_file)
