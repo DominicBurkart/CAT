@@ -1,12 +1,12 @@
-import re
-import pickle
 import os
+import pickle
+import re
 import time
 
+import fasttext
 import nltk
 import numpy as np
 import pandas as pd
-import fasttext
 from sklearn.model_selection import KFold
 from sklearn.naive_bayes import MultinomialNB
 
@@ -15,6 +15,7 @@ data_file = "encoded_5000_usa.csv"
 use_sbatch = False
 verbose = False
 
+NPERMS = 10000
 
 def getFeatureSet(twoples):
     """
@@ -43,7 +44,7 @@ def getFeatureSet(twoples):
     return out  # we have our feature set! send it out.
 
 
-def hypt(accuracy, label, text, perms=50000, show_graph=True, name="hyptest", print_progress=True,
+def hypt(accuracy, label, text, perms=NPERMS, show_graph=True, name="hyptest", print_progress=True,
          multiprocess=True, save_perm_accuracies=True):
     '''
     Tests whether classifiers are performing significantly better than chance.
@@ -148,6 +149,7 @@ def five_fold(label, text, name=None, show_feat=False, hyp_test=True, show_graph
             pd.DataFrame([out]).to_csv(name + ".csv")
     return out
 
+
 def o(value, outname):
     n_bytes = 2 ** 31  # the pickle package is slightly broken in python 3.4 and requires these params for saving large files.
     max_bytes = 2 ** 31 - 1
@@ -157,6 +159,7 @@ def o(value, outname):
             f_out.write(bytes_out[idx:idx + max_bytes])
     return True
 
+
 def save_nb(label, text, name="5000_naive_bayes.pickle"):
     train = getFeatureSet(list(zip(label, text)))
     model = nltk.classify.scikitlearn.SklearnClassifier(MultinomialNB()).train(train)
@@ -165,13 +168,13 @@ def save_nb(label, text, name="5000_naive_bayes.pickle"):
 
 def parse_for_fasttext(datafile):
     df = pd.read_csv(datafile)
-    outname = "temporary_parse_for_fasttext"+str(time.time())
+    outname = "temporary_parse_for_fasttext" + str(time.time())
     with open(outname) as out:
         for label, text in zip(df.autobiographical, df.message):
             if label == "0":
-                out.write("__label__nonautobiographical__ " + text+"\n")
+                out.write("__label__nonautobiographical__ " + text + "\n")
             else:
-                out.write("__label__autobiographical__ " + text+"\n")
+                out.write("__label__autobiographical__ " + text + "\n")
     return outname
 
 
@@ -188,10 +191,10 @@ def fasttext_five_fold(datafile):
             results.append(m.test("test.txt").precision)
     for f in [file, "test.txt", "test.txt", "fasttext_five_fold.bin", "fasttext_five_fold.vec"]:
         os.remove(f)
-    return results
+    return {"mean": np.mean(results), "all": results}
 
 
-def fasttext_perm_test(datafile):
+def fasttext_perm_test(datafile, make_plot=False):
     '''
     :param datafile:
     :return: float. probability that the real precision of the classification model is greater than chance.
@@ -199,17 +202,41 @@ def fasttext_perm_test(datafile):
     df = pd.read_csv(datafile)
     out = dict()
     null_precision = []
-    for i in range(10000):
+    for i in range(NPERMS):
         df.autobiographical = np.random.shuffle(df.autobiographical)
         df.to_csv("disordered.csv", index=False)
-        null_precision.append(fasttext_five_fold("disordered.csv"))
+        null_precision.append(fasttext_five_fold("disordered.csv")['mean'])
     os.remove("disordered.csv")
 
-    real_precision = fasttext_five_fold(datafile)
-    real_avg = np.mean(real_precision)
+    d = fasttext_five_fold(datafile)
+    real_avg = d['mean']
     out['null probability'] = float(len([v for v in null_precision if v > real_avg])) / len(null_precision)
     out['accuracy'] = real_avg
-    out['name'] = "fasttext on "+str(datafile)
+    out['name'] = "fasttext on " + str(datafile)
+    if make_plot:
+        import plotly.graph_objs as go
+        from plotly.offline import plot
+
+        fig = go.Figure(data=[go.Histogram(x=d['all'], opacity=0.9)])
+        plot(fig, filename="fasttext_fivefold_accuracies.html")
+
+        fig = go.Figure(data=[go.Histogram(x=null_precision, opacity=0.9)],
+                        layout={"shapes":
+                            [{
+                                'type': 'line',
+                                'xref': 'x',
+                                'yref': 'y',
+                                'x0': d['mean'],
+                                'y0': 0,
+                                'x1': d['mean'],
+                                'y1': 5000,
+                                'line': {
+                                    'color': 'rgb(50, 171, 96)',
+                                    'width': 2,
+                                }
+                            }]
+                        })
+        plot(fig, filename="fasttext_fivefold_permutations.html")
 
 
 def save_fasttext(datafile, name="5000_fasttext"):
@@ -218,20 +245,23 @@ def save_fasttext(datafile, name="5000_fasttext"):
     os.remove(f)
 
 
-def save_rcnn(label, text, name="5000_rcnn.pickle"):
+def rcnn_perm_test(labels, text):
+    raise NotImplementedError
+
+
+def save_rcnn(labels, text, name="5000_rcnn.pickle"):
     raise NotImplementedError
 
 
 if __name__ == "__main__":
+    np.random.seed(13)
     df = pd.read_csv(data_file)
-
-    models = [
-        five_fold(df.autobiographical, df.message, "cat_usa_fivefold"),
-        fasttext_perm_test(data_file)
-        # todo: do CV on rcnn model.
-    ]
-    pd.DataFrame.from_dict(models).to_csv("cat_classifier_accuracies.csv", index=False)
     save_nb(df.autobiographical, df.message)
     save_fasttext(data_file)
     save_rcnn(df.autobiographical, df.message)
-
+    models = [
+        five_fold(df.autobiographical, df.message, "cat_usa_fivefold"),
+        fasttext_perm_test(data_file, make_plot=True),
+        rcnn_perm_test(df.autobiographical, df.message)
+    ]
+    pd.DataFrame.from_dict(models).to_csv("cat_classifier_accuracies.csv", index=False)
