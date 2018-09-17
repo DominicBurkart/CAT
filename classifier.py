@@ -15,7 +15,7 @@ data_file = "encoded_5000_usa.csv"
 use_sbatch = False
 verbose = False
 
-NPERMS = 10000
+NPERMS = 10
 
 def getFeatureSet(twoples):
     """
