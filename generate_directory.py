@@ -158,7 +158,7 @@ def df(path):
         else:
             raise NotImplementedError(
                 "function df passed a file of unknown type. Files must terminate in .csv.gz or .tsv.")
-    except (pd.errors.ParserError, ValueError) as e:
+    except (pd.errors.ParserError, ValueError, OverflowError) as e:
         if path.endswith(".tsv"):
             return repair_hyperstream_tsv(path)
         else:
