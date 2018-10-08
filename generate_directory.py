@@ -201,12 +201,13 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
                 csv['date'] = csv['filename'][csv['filename'].find("2"): csv['filename'].find(".")]
                 if verbose:
                     newi += 1
-            except (ValueError, MemoryError): # df changed while being opened.
+            except (ValueError, MemoryError):  # df changed while being opened.
                 if verbose:
-                    print("Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
-                          str(csv['path']) +
-                          "\nDecrementing new file #. This program will attempt to process the file " +
-                          "the next time it is run.")
+                    print(
+                        "Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
+                        str(csv['path']) +
+                        "\nDecrementing new file #. This program will attempt to process the file " +
+                        "the next time it is run.")
         else:
             case = old[old.path == csv['path']].iloc[0].to_dict()
             for k in case.keys():
@@ -229,6 +230,7 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
 
 def hd():
     return hyperstream_directory(update_file=hyperstream_outname)
+
 
 def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False, gzips=False):
     '''
@@ -273,12 +275,13 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
                 tsv['date'] = tsv['filename'][tsv['filename'].find("2"): tsv['filename'].find(".")]
                 if verbose:
                     newi += 1
-            except (ValueError, MemoryError): # df changed while being opened.
+            except (ValueError, MemoryError):  # df changed while being opened.
                 if verbose:
-                    print("Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
-                          str(tsv['path']) +
-                          "\nDecrementing new file #. This program will attempt to process the file " +
-                          "the next time it is run.")
+                    print(
+                        "Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
+                        str(tsv['path']) +
+                        "\nDecrementing new file #. This program will attempt to process the file " +
+                        "the next time it is run.")
         else:
             case = old[old.path == tsv['path']].iloc[0].to_dict()
             for k in case.keys():
@@ -475,10 +478,11 @@ def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=
                 gzip['date'] = gzip['filename'][gzip['filename'].find("2"): gzip['filename'].find(".")]
             except (ValueError, MemoryError):
                 if verbose > 0:
-                    print("Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
-                          str(gzip['path']) +
-                          "\nThis program will attempt to process the file " +
-                          "the next time it is run.")
+                    print(
+                        "Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
+                        str(gzip['path']) +
+                        "\nThis program will attempt to process the file " +
+                        "the next time it is run.")
 
         return pd.DataFrame(gzips)
 
@@ -812,7 +816,7 @@ def migrate_and_reformat_known_usa(target, usa, multi=False, verbose=False):
                     usa_mig_helper(i, usa.shape[0], usa.filename.iloc[i], usa.path.iloc[i], target, verbose)
                 except MemoryError:
                     if verbose:
-                        print("Excluding "+usa.filename.iloc[i]+" due to MemoryError.")
+                        print("Excluding " + usa.filename.iloc[i] + " due to MemoryError.")
     if verbose: print("total number of tweets from known US states migrated: " + str(usa_mig_sum[0]))
 
 
@@ -853,6 +857,7 @@ def migrate_everything(target, verbose=True):
 def df_iter(hd):
     for p in hd.path.values:
         yield df(p)
+
 
 if __name__ == "__main__":
     print("generate_directory running.")
