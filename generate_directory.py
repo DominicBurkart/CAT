@@ -876,3 +876,9 @@ if __name__ == "__main__":
         ud = usa_directory(hd=hd, verbose=1)
     ud.to_csv(usa_outname, index=False)
 
+    try:
+        cd = hyperstream_directory(update_file=gzip_outname, verbose=True, gzips=True)
+    except FileNotFoundError:
+        print("Invalid update_file passed. Rerunning without update_file.")
+        cd = hyperstream_directory(verbose=True, gzips=True)
+    hd.to_csv(hyperstream_outname, index=False)
