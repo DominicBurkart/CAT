@@ -173,7 +173,58 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
     '''
     Generates a hyperstream directory from gzipped CSVs instead of uncompressed TSVs (what hyperstream_directory does).
     '''
-    raise NotImplementedError
+    import pandas as pd
+
+    if verbose: print("GENERATING HYPERSTREAM DIRECTORY. Looking for .csv.gz files in " + directory)
+    data_files = files_from_dir(directory=directory, suffix=".csv.gz")
+    if update_file is None:
+        old = None
+    else:
+        old = pd.read_csv(update_file)  # throws FileNotFoundError if passed bad input for old_name
+        if verbose: print("Old directory file loaded.")
+
+    if old is not None and all(csv['filename'] in old.filename.values for csv in data_files):
+        if verbose: print("No new files since update_file was saved. Returning dataframe from update_file.")
+        return old
+
+    if verbose:
+        i = 0
+        newi = 0
+    for csv in data_files:
+        if old is None or csv['filename'] not in old.filename.values:
+            if verbose:
+                print("New file detected (new file # " + str(newi + 1) + "). Analyzing.")
+            try:
+                csv['nrow'] = nrow(csv['path'])  # df is opened and cached.
+                csv['ncol'] = ncol(csv['path'])
+                csv['topic'] = csv['filename'].split("2")[0]  # streaming dates start with 20**
+                csv['date'] = csv['filename'][csv['filename'].find("2"): csv['filename'].find(".")]
+                if verbose:
+                    newi += 1
+            except (ValueError, MemoryError): # df changed while being opened.
+                if verbose:
+                    print("Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
+                          str(csv['path']) +
+                          "\nDecrementing new file #. This program will attempt to process the file " +
+                          "the next time it is run.")
+        else:
+            case = old[old.path == csv['path']].iloc[0].to_dict()
+            for k in case.keys():
+                csv[k] = case[k]
+        if verbose:
+            i += 1
+            if (len(data_files) / i) % 10 == 0:
+                print("Ratio of files checked: " + str(i / len(data_files)))
+                print("New files recorded so far: " + str(newi))
+
+    if verbose:
+        print("hyperstream_directory complete. " + str(newi) + \
+              " new files recorded (total of " + str(i) + \
+              " files recorded, including those in update_file). Converting result to dataframe to be returned.")
+
+    new = pd.DataFrame(data_files)
+    if old is not None: assert old[~old.path.isin(new.path)].shape[0] == 0  # check for missing data.
+    return new
 
 
 def hd():
