@@ -23,6 +23,7 @@ import shapely.geometry  # pip3 install shapely
 
 hyperstream_outname = "hyperstream_directory.csv"
 usa_outname = "usa_directory.csv"
+gzip_outname = "gzip_directory.csv"
 
 usa_path = os.path.abspath(os.path.join(os.curdir, "usa_gzips"))
 
@@ -114,7 +115,7 @@ def nrow(path):
         return shape(path)[0]
     except NotImplementedError:
         with open(path, encoding="utf-8") as f:
-            return len([1 for l in f if l])
+            return len([1 for l in f if l not in ["", "\n"]])
 
 
 def ncol(path):
@@ -177,7 +178,6 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
 
 def hd():
     return hyperstream_directory(update_file=hyperstream_outname)
-
 
 def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False, gzips=False):
     '''
