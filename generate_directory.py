@@ -838,6 +838,28 @@ def check_target(target, hd):
     return hd[~b.isin(target_csvs)].path.values
 
 
+def remigrate_gzips(gzip_target="all_gzips"):
+    delete_bad_gzips(gzip_target)
+    migrate_everything(gzip_target)
+
+
+def delete_bad_gzips(target=os.getcwd()):
+    '''
+    Tries to open each .csv.gz within target directory. Deletes the .csv.gz if it can't be read by hyperstream's df
+    function.
+
+    :param target: target directory to look for .csv.gz files. defaults to working directory.
+    :return: None
+    '''
+    print("delete_bad_gzips started.")
+    for f in files_from_dir(directory=target, suffix=".csv.gz"):
+        try:
+            df(f['path'])
+        except (ValueError, MemoryError, EOFError):
+            print("Deleting bad gzip: ", f['path'])
+            os.remove(f['path'])
+
+
 def migrate_everything(target, verbose=True):
     import os
     try:
