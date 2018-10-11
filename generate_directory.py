@@ -839,8 +839,25 @@ def check_target(target, hd):
 
 
 def remigrate_gzips(gzip_target="all_gzips"):
-    delete_bad_gzips(gzip_target)
-    migrate_everything(gzip_target)
+    '''
+    attempts to open every gzip file and deletes them if they no longer are readable by df function. Replaces deleted
+    .csv.gz files with readable alternatives. Will migrate any new .tsvs into .csv.gz format as well as a side-effect.
+
+    Throws AssertionError if, after three iterations of deletion and migration, at least one file is still unreadable
+    by df().
+
+    :param gzip_target:
+    :return:
+    '''
+    repeats = 3
+    done = False
+    if repeats > 0 and done == False:
+        if delete_bad_gzips(gzip_target) == 0:
+            done = True # yay!
+        else:
+            migrate_everything(gzip_target)
+        done -= 1
+    assert done
 
 
 def delete_bad_gzips(target=os.getcwd()):
@@ -852,12 +869,15 @@ def delete_bad_gzips(target=os.getcwd()):
     :return: None
     '''
     print("delete_bad_gzips started.")
+    count = 0
     for f in files_from_dir(directory=target, suffix=".csv.gz"):
         try:
             df(f['path'])
         except (ValueError, MemoryError, EOFError):
             print("Deleting bad gzip: ", f['path'])
             os.remove(f['path'])
+            count += 1
+    return count
 
 
 def migrate_everything(target, verbose=True):
