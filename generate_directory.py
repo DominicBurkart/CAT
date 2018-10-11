@@ -175,6 +175,12 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
     '''
     import pandas as pd
 
+    def populate(csv):
+        csv['nrow'] = nrow(csv['path'])  # df is opened and cached.
+        csv['ncol'] = ncol(csv['path'])
+        csv['topic'] = csv['filename'].split("2")[0]  # streaming dates start with 20**
+        csv['date'] = csv['filename'][csv['filename'].find("2"): csv['filename'].find(".")]
+
     if verbose: print("GENERATING HYPERSTREAM DIRECTORY. Looking for .csv.gz files in " + directory)
     data_files = files_from_dir(directory=directory, suffix=".csv.gz")
     if update_file is None:
@@ -195,19 +201,17 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
             if verbose:
                 print("New file detected (new file # " + str(newi + 1) + "). Analyzing.")
             try:
-                csv['nrow'] = nrow(csv['path'])  # df is opened and cached.
-                csv['ncol'] = ncol(csv['path'])
-                csv['topic'] = csv['filename'].split("2")[0]  # streaming dates start with 20**
-                csv['date'] = csv['filename'][csv['filename'].find("2"): csv['filename'].find(".")]
+                populate(csv)
                 if verbose:
                     newi += 1
-            except (ValueError, MemoryError):  # df changed while being opened.
-                if verbose:
-                    print(
-                        "Excluding file as it produced a memory or value error (perhaps it was changed while reading?): " +
-                        str(csv['path']) +
-                        "\nDecrementing new file #. This program will attempt to process the file " +
-                        "the next time it is run.")
+            except (ValueError, MemoryError, EOFError):  # df changed while being opened.
+                try:
+                    populate(csv)
+                    if verbose:
+                        newi += 1
+                except (ValueError, MemoryError, EOFError):
+                    if verbose:
+                        print("Bad file: ", csv['filename'])
         else:
             case = old[old.path == csv['path']].iloc[0].to_dict()
             for k in case.keys():
@@ -830,7 +834,7 @@ everything_mig_sum = [0]
 
 def check_target(target, hd):
     target_csvs = [c['filename'].split(".")[0] for c in files_from_dir(target, suffix=".csv.gz")]
-    b = hd.filename.str.split(".").str[0]  # david this syntax is bad
+    b = hd.filename.str.split(".").str[0]
     return hd[~b.isin(target_csvs)].path.values
 
 
