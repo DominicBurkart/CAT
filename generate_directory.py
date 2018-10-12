@@ -880,8 +880,9 @@ def delete_bad_gzips(target=os.getcwd()):
     return count
 
 
-def migrate_everything(target, verbose=True):
+def migrate_everything(target, retry_number = 5, verbose=True):
     import os
+
     try:
         hd = hyperstream_directory(update_file=hyperstream_outname, verbose=True)
     except FileNotFoundError:
@@ -892,7 +893,21 @@ def migrate_everything(target, verbose=True):
         p = to_migrate[i]
         if verbose: print("Migrating " + os.path.basename(p) + " (" + str(i) + " out of " + str(len(to_migrate)) + ").")
         d = df(p)
-        d.to_csv(os.path.join(target, os.path.basename(p).split(".")[0] + ".csv.gz"), compression="gzip", index=False)
+        gz_name = os.path.join(target, os.path.basename(p).split(".")[0] + ".csv.gz")
+        d.to_csv(gz_name, compression="gzip", index=False)
+        try:
+            df(gz_name)
+        except (ValueError, MemoryError, EOFError):
+            successful_migration = False
+            while retry_number > 0 and not successful_migration:
+                try:
+                    d.to_csv(gz_name, compression="gzip", index=False)
+                    df(gz_name)
+                    successful_migration = True
+                except (ValueError, MemoryError, EOFError):
+                    successful_migration = False
+                    retry_number -= 1
+            assert successful_migration
         if verbose:
             print(os.path.basename(p) + " migration complete. Number of tweets migrated: " + str(d.shape[0]))
             everything_mig_sum[0] += d.shape[0]
