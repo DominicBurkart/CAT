@@ -854,7 +854,7 @@ def remigrate_gzips(gzip_target="all_gzips"):
     done = False
     if repeats > 0 and done == False:
         if delete_bad_gzips(gzip_target) == 0:
-            done = True # yay!
+            done = True  # yay!
         else:
             migrate_everything(gzip_target)
         done -= 1
