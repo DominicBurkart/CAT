@@ -949,4 +949,4 @@ if __name__ == "__main__":
     except FileNotFoundError:
         print("Invalid update_file passed. Rerunning without update_file.")
         cd = hyperstream_directory(verbose=True, gzips=True)
-    hd.to_csv(hyperstream_outname, index=False)
+    cd.to_csv(gzip_outname, index=False)
