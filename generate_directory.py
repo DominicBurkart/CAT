@@ -12,6 +12,7 @@ Potential site of error: if files are uploaded to the directory after hyperstrea
 included in that hyperstream_directory. This is a non-issue for our work, as this program a.) is not run while files
 are being written to the relevant directory and b.) is run often enough that the next time will catch it.
 '''
+import datetime
 import multiprocessing
 import os
 from functools import lru_cache
@@ -916,6 +917,16 @@ def df_iter(hd):
         yield df(p)
 
 
+def str_to_date(d):
+    return datetime.date(*[int(v) for v in d.split("-")])
+
+
+def test_str_to_date():
+    d0 = str_to_date("1972-1-1")
+    d1 = str_to_date("2010-04-12")
+    assert d0 == datetime.date(1972, 1, 1)
+    assert d1 == datetime.date(2010, 4, 12)
+    assert d0 < d1
 if __name__ == "__main__":
     print("generate_directory running.")
 
