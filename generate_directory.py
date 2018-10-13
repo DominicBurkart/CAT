@@ -960,6 +960,13 @@ def test__iter_ascending__():
     assert t([1.0, 2.0, 3, 0]) == [[3], [0], [1], [2]]
     assert t([1.0, 2.0, 3, 0]) == [[3], [0], [1], [2]]
     assert t([1.0, np.nan, 3, 0]) == [[3], [0], [2], [1]]
+
+
+def day_iter(hd):
+    dates = hd.date.apply(str_to_date)
+    for indices in __iter_ascending__(dates):
+        yield hd.iloc[indices]
+
 if __name__ == "__main__":
     print("generate_directory running.")
 
