@@ -927,6 +927,39 @@ def test_str_to_date():
     assert d0 == datetime.date(1972, 1, 1)
     assert d1 == datetime.date(2010, 4, 12)
     assert d0 < d1
+
+
+def __iter_ascending__(l):
+    '''
+    yields the sorted indices of all values in l, returning lists of equal values.
+
+    E.g. for an input of [5,4,4,6], this function would yield a generator with the following output: ([1,2], [0], [3]).
+
+    Any nans present in the array-like l will be sorted at the end.
+
+    :param l: array-like, sortable
+    :return: generator of lists of indices
+    '''
+    ordered = np.argsort(l)
+    i = 0
+    while i < len(ordered):
+        sames = [ordered[i]]
+        while i < len(ordered) - 1 and l[ordered[i]] == l[ordered[i + 1]]:
+            i += 1
+            sames.append(ordered[i])
+        yield sames
+        i += 1
+
+
+def test__iter_ascending__():
+    def t(l):
+        return list(__iter_ascending__(l))
+
+    assert t([5, 4, 4, 6]) == [[1, 2], [0], [3]]
+    assert t([5, -4, 4, 6]) == [[1], [2], [0], [3]]
+    assert t([1.0, 2.0, 3, 0]) == [[3], [0], [1], [2]]
+    assert t([1.0, 2.0, 3, 0]) == [[3], [0], [1], [2]]
+    assert t([1.0, np.nan, 3, 0]) == [[3], [0], [2], [1]]
 if __name__ == "__main__":
     print("generate_directory running.")
 
