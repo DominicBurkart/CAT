@@ -13,12 +13,15 @@ included in that hyperstream_directory. This is a non-issue for our work, as thi
 are being written to the relevant directory and b.) is run often enough that the next time will catch it.
 '''
 import datetime
+import dateutil
 import multiprocessing
 import os
+import re
 from functools import lru_cache
 
 import langdetect  # pip3 install langdetect
 import numpy as np
+import pandas as pd
 import shapefile  # pip3 install pyshp
 import shapely.geometry  # pip3 install shapely
 
@@ -146,9 +149,6 @@ def shape(path):
 
 @lru_cache(maxsize=1)
 def df(path):
-    import pandas as pd
-    import os
-
     try:
         if path.endswith(".csv.gz") or path.endswith(".csv"):
             t = {**stream_types, **us_dtype} if os.path.basename(path).upper().startswith("USA") else stream_types
@@ -174,8 +174,6 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
     '''
     Generates a hyperstream directory from gzipped CSVs instead of uncompressed TSVs (what hyperstream_directory does).
     '''
-    import pandas as pd
-
     def populate(csv):
         csv['nrow'] = nrow(csv['path'])  # df is opened and cached.
         csv['ncol'] = ncol(csv['path'])
@@ -249,8 +247,6 @@ def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False
     :param gzips: if True, just passes params to gzip_hd and returns the result.
     :return:
     '''
-    import pandas as pd
-
     if gzips: return gzip_hd(directory, update_file, verbose)
 
     if verbose: print("GENERATING HYPERSTREAM DIRECTORY. Looking for tsv files in " + directory)
@@ -326,7 +322,6 @@ def apply_and_concat(dataframe, field, func, column_names):
     from Dennis Golomazov at https://stackoverflow.com/questions/23690284/
     pandas-apply-function-that-returns-multiple-values-to-rows-in-pandas-dataframe
     '''
-    import pandas as pd
     return pd.concat((
         dataframe,
         dataframe[field].apply(lambda cell: pd.Series(func(cell), index=column_names))), axis=1)
@@ -395,8 +390,6 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
     :return: dataframe of tweets from passed tsv with state appended as column
     '''
-    import numpy as np
-    import pandas as pd
 
     sf = shapefile.Reader(os.path.join(shapefiledir, local_shapefile))
     shapes = sf.shapes()
@@ -471,7 +464,6 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
 
 
 def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=0):
-    import pandas as pd
     if verbose > 0: print("GENERATING USA DIRECTORY.")
 
     def it(gzips):
@@ -605,9 +597,6 @@ def repair_hyperstream_tsv(path, verbose=True):
     (one case in millions for either, and apparently only for some points of interest in case 1),
     I'm comfortable removing these data in cases where repairing could introduce inaccuracy to the data.
     '''
-    import re
-    import numpy as np
-    import pandas as pd
 
     id_exp = r"[0-9]{18}\t"  # matches with twitter ids.
 
