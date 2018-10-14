@@ -196,7 +196,7 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
         i = 0
         newi = 0
     for csv in data_files:
-        if old is None or csv['path'] not in old.filename.values:
+        if old is None or csv['path'] not in old.path.values:
             if verbose:
                 print("New file detected (new file # " + str(newi + 1) + "). Analyzing.")
             try:
