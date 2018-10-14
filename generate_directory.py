@@ -965,7 +965,7 @@ def day_iter(hd):
     '''
     Yields a dataframe of all recorded messages from a given day. Adds additional field to output df: timestamp (derived from time field).
     :param hd:
-    :return:
+    :return: (response_df, day_date)
     '''
     from dateutil import parser
     dates = hd.date.apply(str_to_date)
@@ -977,6 +977,42 @@ def day_iter(hd):
         yield (day, dates[i])
         i += 1
 
+
+def df_time_iter(df, span, start, end):
+    '''
+    :param df: dataframe to sample from.
+    :param span: (integer) length of windows of time to sample from, starting at the start value
+    :param start: where to start the windows.
+    :return:
+    '''
+    assert span < 60 * 60 * 24
+    min = start
+    max = start + span
+    while min > end:
+        yield df.query("timestamp > {} & timestamp < {}".format(min, max))
+        min = max
+        max = min + span
+
+
+def midnight(date):
+    return ( date.toordinal() - datetime.date(1970, 1, 1).toordinal() ) * 24 * 60 * 60
+
+
+def test_midnight():
+    assert midnight(datetime.date(1970,1,1)) == 0
+    assert midnight(datetime.date(1970, 1, 11)) == (10 * 24 * 60 * 60)
+
+
+def minute_iter(hd):
+    for (day_df, date) in day_iter(hd):
+        for minute in df_time_iter(day_df, 60, midnight(date), midnight(date + datetime.timedelta(days=1))):
+            yield minute
+
+
+def hour_iter(hd):
+    for (day_df, date) in day_iter(hd):
+        for hour in df_time_iter(day_df, 60 * 60, midnight(date), midnight(date + datetime.timedelta(days=1))):
+            yield hour
 
 if __name__ == "__main__":
     print("generate_directory running.")
