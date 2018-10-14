@@ -1049,9 +1049,10 @@ if __name__ == "__main__":
         ud = usa_directory(hd=hd, verbose=1)
     ud.to_csv(usa_outname, index=False)
 
+    gzip_dir = os.path.join(os.getcwd(), "all_gzips")
     try:
-        cd = hyperstream_directory(update_file=gzip_outname, verbose=True, gzips=True)
+        cd = hyperstream_directory(directory=gzip_dir, update_file=gzip_outname, verbose=True, gzips=True)
     except FileNotFoundError:
         print("Invalid update_file passed. Rerunning without update_file.")
-        cd = hyperstream_directory(verbose=True, gzips=True)
+        cd = hyperstream_directory(directory=gzip_dir, verbose=True, gzips=True)
     cd.to_csv(gzip_outname, index=False)
