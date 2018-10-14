@@ -994,6 +994,25 @@ def df_time_iter(df, span, start, end):
         max = min + span
 
 
+def test_df_time_iter():
+    from pandas.testing import assert_frame_equal
+    df = pd.DataFrame.from_records({
+        "timestamp" : [0,1,2,3,4,5,6,7],
+        "names" : ["first", "second", "third", "fourth", "and so on", "and so on", "and so on", "and so on"]
+    })
+    outputs = list(df_time_iter(df, 2, 0, 10))
+    targets = [
+        df.query("timestamp == 0 | timestamp == 1"),
+        df.query("timestamp == 2 | timestamp == 3"),
+        df.query("timestamp == 4 | timestamp == 5"),
+        df.query("timestamp == 6 | timestamp == 7"),
+        df.query("timestamp == 8 | timestamp == 9")
+    ]
+    assert len(outputs) == len(targets)
+    map(assert_frame_equal, outputs, targets)
+
+
+
 def midnight(date):
     return ( date.toordinal() - datetime.date(1970, 1, 1).toordinal() ) * 24 * 60 * 60
 
