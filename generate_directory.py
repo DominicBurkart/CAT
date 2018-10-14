@@ -651,7 +651,6 @@ def repair_hyperstream_tsv(path, verbose=True):
         df = pd.DataFrame.from_records([dcheck(repaired(l)) for l in f if dcheck(repaired(l)) != None],
                                        columns=stream_headers)
         if verbose:
-            import os
             print("# misformatted cases excluded from file " + os.path.basename(path) + ": " + str(bads[0]))
         return df.astype(stream_types)
 
@@ -693,7 +692,6 @@ def recalc_lang(text, seed=1001):
 def query(tweet_regex=None, date=None, topic=None, filepaths=None,
           username=None, location_type=None, author_id=None, language=None,
           directory=None):  # todo untested
-    import pandas as pd
     # hyperstream_directory(update_file=hyperstream_outname)
 
     if directory is None:
@@ -748,7 +746,6 @@ def random_sample(directory, n, seed=1001, verbose=True, multi=False, disclude_t
 
     # todo implement disclude_tweet_ids
     import numpy.random
-    import pandas as pd
     rando = numpy.random.RandomState(seed=seed)
     from_each = (directory.nrow.values * n) // directory.nrow.sum()
 
@@ -871,8 +868,6 @@ def delete_bad_gzips(target=os.getcwd()):
 
 
 def migrate_everything(target, nofail=False, verbose=True):
-    import os
-
     try:
         hd = hyperstream_directory(update_file=hyperstream_outname, verbose=True)
     except FileNotFoundError:
@@ -957,7 +952,6 @@ def into_mega_df(hd):
     :param hd:
     :return:
     '''
-    import pandas as pd
     assert hd.shape[0] > 0
     return pd.concat([df(v) for v in hd.path.values])
 
