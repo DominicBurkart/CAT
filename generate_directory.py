@@ -962,10 +962,25 @@ def test__iter_ascending__():
     assert t([1.0, np.nan, 3, 0]) == [[3], [0], [2], [1]]
 
 
+def into_mega_df(hd):
+    '''
+    Yields a dataframe of all recorded messages from a given hyperstream_directory.
+    :param hd:
+    :return:
+    '''
+    import pandas as pd
+    return pd.concat([df(v) for v in hd.path.values])
+
+
 def day_iter(hd):
+    '''
+    Yields a dataframe of all recorded messages from a given day.
+    :param hd:
+    :return:
+    '''
     dates = hd.date.apply(str_to_date)
     for indices in __iter_ascending__(dates):
-        yield hd.iloc[indices]
+        yield into_mega_df(hd.iloc[indices])
 
 if __name__ == "__main__":
     print("generate_directory running.")
