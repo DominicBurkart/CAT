@@ -974,13 +974,20 @@ def into_mega_df(hd):
 
 def day_iter(hd):
     '''
-    Yields a dataframe of all recorded messages from a given day.
+    Yields a dataframe of all recorded messages from a given day. Adds additional field to output df: timestamp (derived from time field).
     :param hd:
     :return:
     '''
+    from dateutil import parser
     dates = hd.date.apply(str_to_date)
+    i = 0
     for indices in __iter_ascending__(dates):
-        yield into_mega_df(hd.iloc[indices])
+        day = into_mega_df(hd.iloc[indices])
+        day.timestamp = day.time.apply(lambda t: parser(t).timestamp())
+        day.sort_values("timestamp", inplace=True)
+        yield (day, dates[i])
+        i += 1
+
 
 if __name__ == "__main__":
     print("generate_directory running.")
