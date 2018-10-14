@@ -958,6 +958,7 @@ def into_mega_df(hd):
     :return:
     '''
     import pandas as pd
+    assert hd.shape[0] > 0
     return pd.concat([df(v) for v in hd.path.values])
 
 
