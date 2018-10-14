@@ -981,15 +981,16 @@ def day_iter(hd):
 def df_time_iter(df, span, start, end):
     '''
     :param df: dataframe to sample from.
-    :param span: (integer) length of windows of time to sample from, starting at the start value
-    :param start: where to start the windows.
+    :param span: (integer in seconds) length of windows of time to sample from, starting at the start value.
+    :param start: where to start the windows (timestamp)
+    :param end: where to stop returning new windows (timestamp)
     :return:
     '''
     assert span < 60 * 60 * 24
     min = start
     max = start + span
-    while min > end:
-        yield df.query("timestamp > {} & timestamp < {}".format(min, max))
+    while min < end:
+        yield df.query("timestamp >= {} & timestamp < {}".format(min, max))
         min = max
         max = min + span
 
