@@ -965,13 +965,15 @@ def day_iter(hd):
     '''
     from dateutil import parser
     dates = hd.date.apply(str_to_date)
-    i = 0
-    for indices in __iter_ascending__(dates):
-        day = into_mega_df(hd.iloc[indices])
-        day.timestamp = day.time.apply(lambda t: parser(t).timestamp())
+    hd['datestamp'] = dates.apply(lambda t: parser(t).timestamp())
+    max_date = max(dates)
+    current_date = min(dates)
+    while current_date <= max_date:
+        day = into_mega_df(hd.query("datestamp == {}", parser(current_date).timestamp()))
+        day['timestamp'] = day.time.apply(lambda t: parser(t).timestamp())
         day.sort_values("timestamp", inplace=True)
-        yield (day, dates[i])
-        i += 1
+        yield (day, current_date)
+        current_date = current_date + datetime.timedelta(days=1)
 
 
 def df_time_iter(df, span, start, end):
