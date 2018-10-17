@@ -25,11 +25,13 @@ import pandas as pd
 import shapefile  # pip3 install pyshp
 import shapely.geometry  # pip3 install shapely
 
-hyperstream_outname = "hyperstream_directory.csv"
-usa_outname = "usa_directory.csv"
-gzip_outname = "gzip_directory.csv"
+HYPERSTREAM_OUTNAME = "hyperstream_directory.csv"
+USA_OUTNAME = "usa_directory.csv"
+GZIP_OUTNAME = "GZIP_PATHectory.csv"
 
-usa_path = os.path.abspath(os.path.join(os.curdir, "usa_gzips"))
+USA_PATH = os.path.abspath(os.path.join(os.curdir, "usa_gzips"))
+GZIP_PATH = os.path.join(os.getcwd(), "all_gzips")
+
 
 threads = max([multiprocessing.cpu_count() - 1, 2])
 
@@ -233,7 +235,7 @@ def gzip_hd(directory=os.getcwd(), update_file=None, verbose=False):
 
 
 def hd():
-    return hyperstream_directory(update_file=hyperstream_outname)
+    return hyperstream_directory(update_file=HYPERSTREAM_OUTNAME)
 
 
 def hyperstream_directory(directory=os.getcwd(), update_file=None, verbose=False, gzips=False):
@@ -464,7 +466,7 @@ def append_states(path, shapefiledir=os.path.join(os.getcwd(), "tl_2017_us_state
     return pd.concat([dat, pd.DataFrame(out).astype(us_dtype)], axis=1)
 
 
-def usa_directory(directory=usa_path, update_file=usa_outname, hd=None, verbose=0):
+def usa_directory(directory=USA_PATH, update_file=USA_OUTNAME, hd=None, verbose=0):
     if verbose > 0: print("GENERATING USA DIRECTORY.")
 
     def it(gzips):
@@ -525,7 +527,7 @@ def assert_old_accurate():
     '''
     tests that hyperstream directory yields consistent results when updating vs generating directory csv.
     '''
-    assert hyperstream_directory(update_file=hyperstream_outname).equals(hyperstream_directory())
+    assert hyperstream_directory(update_file=HYPERSTREAM_OUTNAME).equals(hyperstream_directory())
     return True
 
 
@@ -693,10 +695,10 @@ def recalc_lang(text, seed=1001):
 def query(tweet_regex=None, date=None, topic=None, filepaths=None,
           username=None, location_type=None, author_id=None, language=None,
           directory=None):  # todo untested
-    # hyperstream_directory(update_file=hyperstream_outname)
+    # hyperstream_directory(update_file=HYPERSTREAM_OUTNAME)
 
     if directory is None:
-        directory = hyperstream_directory(update_file=hyperstream_outname)
+        directory = hyperstream_directory(update_file=HYPERSTREAM_OUTNAME)
 
     # todo add input validation
 
@@ -813,7 +815,7 @@ def migrate_and_reformat_known_usa(target, usa, multi=False, verbose=False):
 
 
 def usa_first_gzips():
-    hd = hyperstream_directory(update_file=hyperstream_outname)
+    hd = hyperstream_directory(update_file=HYPERSTREAM_OUTNAME)
     migrate_and_reformat_known_usa("/home/dominic/shiny/hyperstream/usa_gzips", hd[hd.topic == "USA"], verbose=True)
 
 
@@ -870,7 +872,7 @@ def delete_bad_gzips(target=os.getcwd()):
 
 def migrate_everything(target, nofail=False, verbose=True):
     try:
-        hd = hyperstream_directory(update_file=hyperstream_outname, verbose=True)
+        hd = hyperstream_directory(update_file=HYPERSTREAM_OUTNAME, verbose=True)
     except FileNotFoundError:
         hd = hyperstream_directory(verbose=True)
 
@@ -1036,23 +1038,22 @@ if __name__ == "__main__":
     print("generate_directory running.")
 
     try:
-        hd = hyperstream_directory(update_file=hyperstream_outname, verbose=True)
+        hd = hyperstream_directory(update_file=HYPERSTREAM_OUTNAME, verbose=True)
     except FileNotFoundError:
         print("Invalid update_file passed. Rerunning without update_file.")
         hd = hyperstream_directory(verbose=True)
-    hd.to_csv(hyperstream_outname, index=False)
+    hd.to_csv(HYPERSTREAM_OUTNAME, index=False)
 
     try:
-        ud = usa_directory(update_file=usa_outname, hd=hd, verbose=1)
+        ud = usa_directory(update_file=USA_OUTNAME, hd=hd, verbose=1)
     except FileNotFoundError:
         print("Invalid update_file passed. Rerunning without update_file.")
         ud = usa_directory(hd=hd, verbose=1)
-    ud.to_csv(usa_outname, index=False)
+    ud.to_csv(USA_OUTNAME, index=False)
 
-    gzip_dir = os.path.join(os.getcwd(), "all_gzips")
     try:
-        cd = hyperstream_directory(directory=gzip_dir, update_file=gzip_outname, verbose=True, gzips=True)
+        cd = hyperstream_directory(directory=GZIP_PATH, update_file=GZIP_OUTNAME, verbose=True, gzips=True)
     except FileNotFoundError:
         print("Invalid update_file passed. Rerunning without update_file.")
-        cd = hyperstream_directory(directory=gzip_dir, verbose=True, gzips=True)
-    cd.to_csv(gzip_outname, index=False)
+        cd = hyperstream_directory(directory=GZIP_PATH, verbose=True, gzips=True)
+    cd.to_csv(GZIP_OUTNAME, index=False)
