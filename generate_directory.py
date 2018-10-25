@@ -1024,6 +1024,11 @@ def test_midnight():
 
 
 def minute_iter(hd):
+    '''
+
+    :param hd: hyperstream directory-formatted dataframe to iterate through
+    :return: generator of dataframes with tweets from each minute
+    '''
     for (day_df, date) in day_iter(hd):
         for minute in df_time_iter(day_df, 60, midnight(date), midnight(date + datetime.timedelta(days=1))):
             yield minute
