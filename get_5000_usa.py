@@ -6,8 +6,8 @@ collect_int = 5000
 
 output_file = "5000_usa_english_sample.csv"
 
-hd = gd.hyperstream_directory(update_file=gd.hyperstream_outname)
-ud = gd.usa_directory(hd=hd, update_file=gd.usa_outname)
+hd = gd.hyperstream_directory(update_file=gd.HYPERSTREAM_OUTNAME)
+ud = gd.usa_directory(hd=hd, update_file=gd.USA_OUTNAME)
 
 
 def r(n, collected=None, m=2, exclude=None):
