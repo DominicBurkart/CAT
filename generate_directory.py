@@ -846,7 +846,7 @@ def remigrate_gzips(gzip_target="all_gzips"):
             done = True  # yay!
         else:
             migrate_everything(gzip_target)
-        done -= 1
+        repeats -= 1
     assert done
 
 
