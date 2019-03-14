@@ -746,8 +746,9 @@ def random_sample(directory, n, seed=1001, verbose=True, multi=False, disclude_t
     :param seed: initial seed for the numpy random number generator
     :return:
     '''
+    if disclude_tweet_ids:
+        return NotImplementedError
 
-    # todo implement disclude_tweet_ids
     import numpy.random
     rando = numpy.random.RandomState(seed=seed)
     from_each = (directory.nrow.values * n) // directory.nrow.sum()
@@ -988,7 +989,7 @@ def df_time_iter(df, span, start, end):
     '''
     assert span < 60 * 60 * 24
     min = start
-    max = start + span
+    max = start + span if start + span < end else end
     while min < end:
         yield df.query("timestamp >= {} & timestamp < {}".format(min, max))
         min = max
@@ -1045,20 +1046,20 @@ if __name__ == "__main__":
     try:
         hd = hyperstream_directory(update_file=HYPERSTREAM_OUTNAME, verbose=True)
     except FileNotFoundError:
-        print("Invalid update_file passed. Rerunning without update_file.")
+        print("Invalid hyperstream update_file passed. Rerunning without update_file.")
         hd = hyperstream_directory(verbose=True)
     hd.to_csv(HYPERSTREAM_OUTNAME, index=False)
 
     try:
         ud = usa_directory(update_file=USA_OUTNAME, hd=hd, verbose=1)
     except FileNotFoundError:
-        print("Invalid update_file passed. Rerunning without update_file.")
+        print("Invalid USA directory update_file passed. Rerunning without update_file.")
         ud = usa_directory(hd=hd, verbose=1)
     ud.to_csv(USA_OUTNAME, index=False)
 
     try:
         cd = hyperstream_directory(directory=GZIP_PATH, update_file=GZIP_OUTNAME, verbose=True, gzips=True)
     except FileNotFoundError:
-        print("Invalid update_file passed. Rerunning without update_file.")
+        print("Invalid gzip update_file passed. Rerunning without update_file.")
         cd = hyperstream_directory(directory=GZIP_PATH, verbose=True, gzips=True)
     cd.to_csv(GZIP_OUTNAME, index=False)
